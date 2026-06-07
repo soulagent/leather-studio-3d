@@ -107,6 +107,28 @@
   }
   #status .flash{color:var(--success)}
   #status .sb-r{margin-left:auto;color:var(--text-muted);font-variant-numeric:tabular-nums}
+
+  /* ── Themed modal (confirmModal / alertModal) — never native confirm/alert ── */
+  #modal-bg{
+    position:fixed; inset:0; z-index:100; display:none;
+    align-items:center; justify-content:center; background:rgba(0,0,0,.5);
+  }
+  #modal-bg.show{display:flex}
+  .modal-box{
+    background:var(--dialog); border:1px solid var(--border); border-radius:10px;
+    box-shadow:0 18px 50px rgba(0,0,0,.5); width:min(420px,90vw); padding:20px 22px;
+  }
+  .modal-box h3{margin:0 0 10px;font-size:15px;color:var(--text-heading)}
+  .modal-box .modal-msg{font-size:13px;color:var(--text);line-height:1.5;margin-bottom:18px;white-space:pre-line}
+  .modal-row{display:flex;justify-content:flex-end;gap:10px}
+  .modal-btn{
+    font:inherit;font-size:12px;padding:6px 14px;border-radius:4px;cursor:pointer;
+    border:1px solid var(--border);background:var(--raised);color:var(--text);
+  }
+  .modal-btn:hover{background:var(--hover)}
+  .modal-btn.primary{background:var(--accent);border-color:var(--accent-bright);color:#fff}
+  .modal-btn.primary:hover{background:var(--accent-hover)}
+  .modal-btn:focus-visible{outline:2px solid var(--accent-bright);outline-offset:2px}
 </style>
 </head>
 <body>
@@ -130,6 +152,13 @@
         <div class="m-act" id="mi-stitch">Stitching<span class="m-chk" id="chk-stitch">&#10003;</span></div>
         <div class="m-sep"></div>
         <div class="m-act" id="mi-theme">Light mode<span class="m-chk" id="chk-light"></span></div>
+      </div>
+    </div>
+
+    <div class="m-item" data-menu>Help
+      <div class="m-drop">
+        <div class="m-act" id="mi-update">Check for Updates&hellip;</div>
+        <div class="m-act" id="mi-about">About</div>
       </div>
     </div>
   </div>
@@ -170,6 +199,14 @@
   </div>
 
   <input type="file" id="filePick" accept=".lpd,.json" style="display:none">
+
+  <div id="modal-bg">
+    <div class="modal-box" role="dialog" aria-modal="true">
+      <h3 id="modal-title"></h3>
+      <div class="modal-msg" id="modal-msg"></div>
+      <div class="modal-row" id="modal-row"></div>
+    </div>
+  </div>
 
   <!-- Classic (non-module) scripts so the app runs by simply double-clicking
        index.html. ES-module imports are blocked over file:// in Chromium, so we
@@ -703,6 +740,32 @@
   function setInfo(t){ document.getElementById('sb-info').textContent = t; }
   function setMenuCheck(id, on){ document.getElementById(id).textContent = on ? '✓' : ''; }
 
+  // ── Themed dialogs (never native confirm/alert — ui-language rule) ──
+  // confirmModal → Promise<bool>; alertModal = confirm with no Cancel.
+  function isDesktop(){ return !!window.__TAURI__; }
+  function confirmModal(message, opts){
+    opts = opts || {};
+    return new Promise(resolve=>{
+      const bg=document.getElementById('modal-bg'), row=document.getElementById('modal-row');
+      document.getElementById('modal-title').textContent = opts.title || 'Confirm';
+      document.getElementById('modal-msg').textContent = message;
+      row.innerHTML='';
+      let done=false;
+      const close=v=>{ if(done) return; done=true; bg.classList.remove('show'); document.removeEventListener('keydown',onKey,true); resolve(v); };
+      if(opts.cancel !== null){
+        const c=document.createElement('button'); c.className='modal-btn'; c.textContent=opts.cancel||'Cancel';
+        c.onclick=()=>close(false); row.appendChild(c);
+      }
+      const ok=document.createElement('button'); ok.className='modal-btn primary'; ok.textContent=opts.ok||'OK';
+      ok.onclick=()=>close(true); row.appendChild(ok);
+      const onKey=e=>{ if(e.key==='Escape'){ e.stopPropagation(); close(opts.cancel===null); } else if(e.key==='Enter'){ e.stopPropagation(); close(true); } };
+      bg.onclick=e=>{ if(e.target===bg) close(opts.cancel===null); };
+      document.addEventListener('keydown',onKey,true);
+      bg.classList.add('show'); ok.focus();
+    });
+  }
+  function alertModal(message, title){ return confirmModal(message, {title:title||'Notice', cancel:null}); }
+
   // ── File open ──
   const filePick = document.getElementById('filePick');
   document.getElementById('mi-open').onclick = ()=> filePick.click();
@@ -735,6 +798,42 @@
   document.getElementById('mi-wire').onclick   = e=>{ e.stopPropagation(); S.wireframe=!S.wireframe; setMenuCheck('chk-wire',S.wireframe); document.getElementById('ckWire').checked=S.wireframe; applyMaterials(); };
   document.getElementById('mi-stitch').onclick = e=>{ e.stopPropagation(); S.showStitches=!S.showStitches; applyStitch(); };
   document.getElementById('mi-theme').onclick  = e=>{ e.stopPropagation(); S.light=!S.light; applyTheme(); };
+  document.getElementById('mi-update').onclick = ()=> checkForUpdates(true);
+  document.getElementById('mi-about').onclick  = ()=> alertModal('Leather Studio 3D '+APP_VERSION+'\n\n3D preview companion to the Leather Pattern Designer.\nLoads a .lpd and previews the pieces in 3D.', 'About');
+
+  // Desktop auto-update. Manual (Help ▸ Check for Updates) reports every outcome;
+  // the silent background call on launch only speaks up when an update exists.
+  // No-op in a plain browser (the menu item is hidden there too).
+  async function checkForUpdates(manual){
+    const up = window.__TAURI__ && window.__TAURI__.updater;
+    if(!up || !up.check){
+      if(manual) alertModal('Updates are only available in the installed desktop app.', 'Check for Updates');
+      return;
+    }
+    try{
+      if(manual) flash('Checking for updates…');
+      const update = await up.check();
+      if(!update){
+        if(manual) await alertModal("You're on the latest version ("+APP_VERSION+").", 'Up to Date');
+        return;
+      }
+      const notes = update.body ? '\n\nNotes: '+String(update.body).replace(/\s+/g,' ').slice(0,200) : '';
+      const ok = await confirmModal('Version '+update.version+' is available — download and install now? '
+          +'The app will restart when it finishes.'+notes,
+          {title:'Update Available', ok:'Update Now', cancel:'Later'});
+      if(!ok) return;
+      let total=0, got=0;
+      await update.downloadAndInstall(e=>{
+        if(e.event==='Started'){ total=(e.data&&e.data.contentLength)||0; flash('Downloading update…'); }
+        else if(e.event==='Progress'){ got+=(e.data&&e.data.chunkLength)||0; flash(total?('Downloading '+Math.round(got/total*100)+'%'):'Downloading…'); }
+        else if(e.event==='Finished'){ flash('Installing…'); }
+      });
+      const proc = window.__TAURI__ && window.__TAURI__.process;
+      if(proc && proc.relaunch) await proc.relaunch();
+    }catch(err){
+      if(manual) alertModal('Update check failed: '+((err&&err.message)||err), 'Update Error');
+    }
+  }
 
   function applyStitch(){
     applyStitchVisibility();
@@ -796,7 +895,8 @@
   // the path+contents through `take_launch_file`; a 2nd launch emits `open-lpd`.
   (function desktopLaunch(){
     const T = window.__TAURI__;
-    if (!T) return; // browser build — nothing to do
+    if (!T){ const mu=document.getElementById('mi-update'); if(mu) mu.style.display='none'; return; } // updates = desktop only
+    setTimeout(()=>checkForUpdates(false), 1500); // silent background check on launch
     const loadText = (content, path)=>{
       try { loadPattern(JSON.parse(content), (path||'pattern').split(/[\\/]/).pop().replace(/\.[^.]+$/,'')); }
       catch { flash('Could not open the launched file'); }

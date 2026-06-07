@@ -63,6 +63,29 @@ Check "capabilities has core:default" ($caps -match 'core:default')
 Check "bundle target nsis" ($conf.bundle.targets -contains 'nsis')
 Check "does NOT hijack .lpd association" (-not ($conf.bundle.PSObject.Properties.Name -contains 'fileAssociations')) "LPD owns .lpd"
 
+# --- auto-update / signing ---
+$wf = Join-Path $root '.github\workflows\release.yml'
+Check "createUpdaterArtifacts on" ($conf.bundle.createUpdaterArtifacts -eq $true)
+Check "updater pubkey present" ([string]$conf.plugins.updater.pubkey -ne '')
+Check "updater endpoint -> this repo latest.json" ([string]$conf.plugins.updater.endpoints -match 'leather-studio-3d/releases/latest/download/latest.json')
+Check "Cargo: tauri-plugin-updater" ($cargo -match 'tauri-plugin-updater')
+Check "Cargo: tauri-plugin-process" ($cargo -match 'tauri-plugin-process')
+Check "Cargo: serde_json (generate_context)" ($cargo -match 'serde_json')
+Check "main.rs registers updater plugin" ($mainrs -match 'tauri_plugin_updater')
+Check "main.rs registers process plugin" ($mainrs -match 'tauri_plugin_process')
+Check "capabilities has updater:default" ($caps -match 'updater:default')
+Check "capabilities has process:default" ($caps -match 'process:default')
+Check "frontend has checkForUpdates" ($index -match 'function checkForUpdates')
+Check "frontend Help > Check for Updates item" ($index -match 'id="mi-update"')
+Check "frontend uses updater.check + relaunch" (($index -match 'updater') -and ($index -match 'relaunch'))
+Check "release workflow exists" (Test-Path $wf)
+if (Test-Path $wf) {
+  $w = Get-Content $wf -Raw
+  Check "workflow signs (TAURI_SIGNING_PRIVATE_KEY)" ($w -match 'TAURI_SIGNING_PRIVATE_KEY')
+  Check "workflow seeds vendor/ too" ($w -match 'vendor')
+  Check "workflow projectPath desktop/src-tauri" ($w -match 'projectPath:\s*desktop/src-tauri')
+}
+
 Write-Host "  -------------------------------------------------"
 $total = $pass + $fail
 $color = if ($fail -eq 0) { 'Green' } else { 'Red' }

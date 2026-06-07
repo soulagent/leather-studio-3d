@@ -1,0 +1,51 @@
+name: release
+
+# Build, sign, and publish a desktop release that the in-app "Check for Updates" can pull.
+# Trigger: click "Run workflow" (workflow_dispatch) after bumping the version + pushing, or push a
+# v* tag. tauri-action builds the NSIS installer, signs it with the secret key, creates a GitHub
+# Release, and uploads the installer + signature + latest.json (the updater manifest).
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write   # create the Release and upload assets
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: desktop/src-tauri
+
+      # build.rs copies ../../index.html + ../../vendor into ../dist at build time, but seed them
+      # first so frontendDist exists before the Tauri CLI validates it (the app has no JS build).
+      - name: Seed frontend dist
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force desktop/dist/vendor | Out-Null
+          Copy-Item index.html desktop/dist/index.html -Force
+          Copy-Item vendor/* desktop/dist/vendor/ -Force
+
+      - name: Build, sign, and publish
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: desktop/src-tauri
+          # __VERSION__ is replaced with the version from tauri.conf.json → tag like v0.0.2.
+          tagName: v__VERSION__
+          releaseName: 'Leather Studio 3D v__VERSION__'
+          releaseBody: 'Desktop build. Installed copies update via Help ▸ Check for Updates.'
+          releaseDraft: false
+          prerelease: false

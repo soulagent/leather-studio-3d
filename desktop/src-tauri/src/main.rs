@@ -42,6 +42,10 @@ fn main() {
                 }
             }
         }))
+        // Auto-update: the updater checks the GitHub latest.json endpoint, downloads + installs a
+        // newer signed build; the process plugin lets the frontend relaunch into it afterwards.
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_process::init())
         .manage(LaunchFile(Mutex::new(launch_path())))
         .invoke_handler(tauri::generate_handler![take_launch_file])
         .run(tauri::generate_context!())
