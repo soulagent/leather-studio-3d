@@ -1,5 +1,5 @@
 # Leather Studio 3D — Session Context
-_Last updated: 2026-06-07 · Current version: v0.0.1 · Reads .lpd (Pattern Designer save format v14)_
+_Last updated: 2026-06-07 · Current version: v0.0.2 · Reads .lpd (Pattern Designer save format v14)_
 
 ---
 
@@ -29,15 +29,36 @@ vendor/
                      index.html → "Working On: Leather Studio 3D v0.0.1". Don't put the
                      version in this file. Gitignored (personal scratch).
 samples/           ← sample .lpd files to load (optional; gitignore covers _scratch*).
+tests/
+  run-smoke.ps1        ← headless-Edge app-logic smoke runner (-Tier quick|full). Writes the
+                         instrumented page to the PROJECT ROOT so ./vendor/ resolves; forces
+                         software GL (SwiftShader) since the kernel is defined after WebGLRenderer.
+  smoke-harness.js     ← injected test body; asserts against the real kernel + loadPattern
+  run-build-smoke.ps1  ← fast STATIC desktop-build checks (version sync, Rust<->JS contract)
+run-smoke.cmd      ← double-click launcher for the app smoke (Q/F prompt)
+desktop/           ← Tauri v2 native-exe wrapper. build.rs copies index.html + vendor/ into
+                     dist/; main.rs = single-instance + take_launch_file + open-lpd. See its README.
 MD files/
   CONTEXT.md       ← this file
   DEVLOG.md        ← versioned changelog (append every session)
   SHORTCUTS.md     ← keyboard / mouse reference
 .claude/
+  commands/        ← /smoketest-quick + /smoketest-full slash commands
   skills/ui-language/SKILL.md  ← shared design language (copied from the Pattern Designer)
 README.md
 CLAUDE.md
 ```
+
+## Commands
+
+```powershell
+tests\run-smoke.ps1 -Tier quick        # kernel + outline (fast)
+tests\run-smoke.ps1 -Tier full         # + stitch gen + .lpd->3D load   (26/26)
+tests\run-smoke.ps1 -Feature "stitch-path,load"
+tests\run-build-smoke.ps1              # desktop-build wiring, static     (19/19)
+```
+
+Run the app smoke after any logic change. Exit 0 = all pass. Uses no Claude credits/context.
 
 ---
 
@@ -47,38 +68,52 @@ Plain `<script>`s inside `index.html`: `vendor/three.min.js` (UMD → global `TH
 `vendor/OrbitControls.classic.js` (→ `THREE.OrbitControls`), then the app script. **Classic
 scripts on purpose** — ES-module `import` is blocked over `file://` in Chromium, so a module
 build silently fails when the file is double-clicked. Use `THREE.*` globals; don't reintroduce
-`import`/import maps (see DEVLOG v0.0.1 for the bug this fixed).
+`import`/import maps (see DEVLOG v0.0.1 for the bug this fixed). The render loop is kicked off
+**last** (after every definition) inside a try, so a GL hiccup can't leave the kernel undefined.
 
 ### The `S` state object
 One global `S` holds app state: material (`leather`, `roughness`, `thickness`), `stitch` colour,
-lighting (`keyLight`, `ambient`), scene toggles (`showGrid`, `wireframe`, `light` theme),
-`panelMeshes[]` (the current pattern's meshes), and `docName`.
+lighting (`keyLight`, `ambient`), scene toggles (`showGrid`, `wireframe`, `showStitches`, `light`),
+`panelMeshes[]` (panel meshes), `stitchMeshes[]` (hole + thread instanced meshes), `threadMesh`
+(for live colour), `docName`, and `lastData/lastName` (for rebuilds). `LP.defMargin/defSpacing` =
+stitch defaults read from the loaded doc's `settings`.
 
 ### Scene graph
 `scene` → ambient + key (`DirectionalLight`, casts soft shadow) + fill light, a `ShadowMaterial`
-ground plane, a `GridHelper`, and a `patternGroup` that all loaded panel meshes go into (so the
-whole pattern can be recentred/cleared as a unit). `OrbitControls` with damping drives the camera;
-`HOME_CAM` + `resetCamera()` frame the origin (bound to **R**).
+ground plane, a `GridHelper`, and a `patternGroup` that all loaded panel + stitch meshes go into
+(so the whole pattern can be recentred/cleared as a unit). `OrbitControls` with damping drives the
+camera; `HOME_CAM` + `resetCamera()` frame the origin (bound to **R**).
 
-### The `.lpd` → 3D pipeline (`loadPattern` → `shapeFor` → ExtrudeGeometry)
-1. `loadPattern(data, name)` clears the scene, then for each non-hidden shape builds a
-   `THREE.Shape` via `shapeFor`.
-2. `shapeFor(sh)` maps a `.lpd` shape to a flat 2D outline in mm:
-   - **rect** → `roundedRectShape` (corner radius from `rad`, or the max of `rTL/rTR/rBR/rBL`).
-   - **circle** → `absarc` (uses `cx,cy,r`, falling back to `x,y,w,h` centre/half-min).
-   - **path** → polygon through `pts` anchors. **Bezier curvature is NOT yet honoured** (anchors
-     are joined with straight lines) — a known TODO (see DEVLOG / backlog).
-   - **text** and unknown types → skipped (no 3D representation yet).
-3. Each shape is extruded by `S.thickness` (`ExtrudeGeometry`, no bevel), rotated flat into the
-   XZ plane, and given a shared `leatherMaterial()` (MeshStandardMaterial, double-sided).
-4. `recentrePattern()` centres the group over the origin; `resetCamera()` frames it.
+### The geometry/stitch KERNEL (ported verbatim from the Pattern Designer)
+A clearly-marked block holds the authoritative algorithms copied from the main app's `index.html`
+(and its `stitch-edge-logic` skill): `cubicPt`/`sampleSeg`/`samplePath`, `roundedRectPathPts`/
+`rectRounded`, `shapeEdgeCount`/`edgeStitched`, `stitchRect`/`stitchCircle`/`stitchPath`/`stitchFor`.
+**Keep in sync with the main app** — only the margin/spacing defaults are rebound from `S.*` to
+`LP.*`. Coordinates are mm, Y-down (SVG convention).
+
+### The `.lpd` → 3D pipeline (`loadPattern` → `outlinePolygon` → ExtrudeGeometry + stitches)
+1. `loadPattern(data, name, keepCam)` clears the scene, sets `LP` defaults from `data.settings`,
+   then for each non-hidden shape builds a panel and collects its stitches.
+2. `outlinePolygon(sh)` → a sampled **mm polygon**:
+   - **rect** → sharp 4-corner, or `samplePath(roundedRectPathPts(sh))` when `radii` are set.
+   - **circle** → 72-point ring (`cx,cy,r`, falling back to `x,y,w,h`).
+   - **path** → **true bezier** sampled per cubic segment (uses `points` + cp handles), closed
+     into a fillable panel. (This is the v0.0.2 pen-render fix — the old code read `sh.pts`.)
+   - **text** / unknown → skipped.
+3. `shapeFromPolygon` → `THREE.Shape`; extruded by `S.thickness`, rotated flat (shape XY → world
+   XZ, **top face at world y = thickness**), shared `leatherMaterial()`.
+4. `collectStitches(sh)` runs `stitchFor(sh)` → hole points; `addHoleMesh` (instanced cylinders
+   sunk into the top) + `addThreadMesh` (instanced thread-coloured cylinders between consecutive
+   holes within ~1.8×spacing). Stitch meshes honour `S.showStitches`.
+5. `recentrePattern()` centres the group; `resetCamera()` frames it (unless `keepCam`).
 
 ### Live edits (no reload)
 - `applyMaterials()` — colour / roughness / wireframe re-applied to every panel mesh.
-- `rebuildIfThickness()` — thickness change scales mesh Y to the new depth (skeleton shortcut;
-  a true rebuild from the doc is a later refinement).
-- `applyLighting()` — key/ambient intensities. `applyGrid()` — grid visibility (menu ↔ checkbox
-  stay in sync). `applyTheme()` — `body.light` + scene background + grid recolour.
+- `applyStitchColor()` — thread colour. `applyStitch()` — stitch visibility (menu ↔ checkbox sync).
+- `rebuild()` — full rebuild from `lastData` keeping the camera (used on **thickness** change,
+  since hole/thread Y depends on thickness).
+- `applyLighting()` — key/ambient intensities. `applyGrid()` — grid visibility.
+  `applyTheme()` — `body.light` + scene background + grid recolour.
 - `flash(msg)` — status-bar success flash (~2.6s) per the ui-language feedback rule.
 
 ### Input
@@ -101,15 +136,18 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
 
 ## Backlog / TODOs
 
-1. **Bezier paths**: honour control points (`absarc`/`bezierCurveTo`) instead of anchor polygons.
-2. **Stitch holes**: render the saddle-stitch holes/thread in 3D once we reuse the Pattern
-   Designer's `stitch-edge-logic` (currently the Stitch panel only sets a thread colour).
-3. **Thickness**: rebuild geometry from the doc rather than scaling Y.
-4. **Sample library**: ship a couple of real `.lpd` files in `samples/`.
-5. **Themed dialogs**: add `confirmModal`/`alertModal` (currently only status-bar flashes) per
+- ✅ **Bezier paths** — DONE v0.0.2 (`outlinePolygon` samples cubic segments).
+- ✅ **Stitch holes + thread** — DONE v0.0.2 (ported kernel + instanced hole/thread meshes).
+- ✅ **Smoke tests** — DONE v0.0.2 (`tests/run-smoke.ps1` + `run-build-smoke.ps1`).
+- ✅ **Desktop wrapper** — DONE v0.0.2 (`desktop/`, Tauri v2; not yet built).
+1. **Sample library**: ship more real `.lpd` files in `samples/` (have `demo-card-pocket.lpd`).
+2. **Themed dialogs**: add `confirmModal`/`alertModal` (currently only status-bar flashes) per
    the ui-language skill before any destructive/decision flows.
-6. **Smoke tests**: no harness yet (the app is mostly three.js rendering). Add logic-level checks
-   for `shapeFor`/`loadPattern` if the loader grows.
+3. **Saddle-stitch realism**: alternate front/back thread passes + slanted slits (current thread is
+   a simple cylinder between holes; holes are surface discs, not boolean-punched).
+4. **Desktop follow-ups**: auto-update (needs key/repo/pipeline) and native Open/Save dialogs.
+5. **Thickness**: `rebuild()` re-runs the loader on change; fine, but a partial update would be
+   cheaper if perf matters on big patterns.
 
 ---
 

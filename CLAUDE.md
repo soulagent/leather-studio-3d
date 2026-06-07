@@ -29,6 +29,21 @@ The reference docs live in **`MD files/`**. Before making changes, read:
 - **`.claude/skills/ui-language/SKILL.md`** — the shared design tokens (dark/light, one red
   accent), property-row patterns, themed dialogs, french-stitch motif. Apply to all new UI.
 
+## Commands
+
+```powershell
+tests\run-smoke.ps1 -Tier quick        # ~kernel + outline (fast)
+tests\run-smoke.ps1 -Tier full         # + stitch generation + .lpd->3D load  (26/26)
+tests\run-smoke.ps1 -Feature "stitch-path,load"
+tests\run-build-smoke.ps1              # desktop-build wiring, static (no compile)  (19/19)
+```
+
+Also `/smoketest-quick` `/smoketest-full`, or double-click `run-smoke.cmd`. Run the app smoke
+after any logic change (exit 0 = pass). All runs are headless/standalone — no Claude credits or
+context. The app smoke forces software GL (SwiftShader) and writes its temp page to the **project
+root** so `./vendor/` resolves. To view the app: open `index.html` in a browser. Build the exe:
+`cd desktop\src-tauri; cargo tauri build`.
+
 ## Roadmap (phased — see CONTEXT.md for the full game plan)
 
 - **Phase 1 (now): 3D viewer MVP.** Load `.lpd`, render each piece as a flat textured panel in

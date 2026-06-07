@@ -127,6 +127,7 @@
         <div class="m-act" id="mi-reset">Reset camera<span class="kb">R</span></div>
         <div class="m-act" id="mi-grid">Ground grid<span class="m-chk" id="chk-grid">&#10003;</span></div>
         <div class="m-act" id="mi-wire">Wireframe<span class="m-chk" id="chk-wire"></span></div>
+        <div class="m-act" id="mi-stitch">Stitching<span class="m-chk" id="chk-stitch">&#10003;</span></div>
         <div class="m-sep"></div>
         <div class="m-act" id="mi-theme">Light mode<span class="m-chk" id="chk-light"></span></div>
       </div>
@@ -159,6 +160,7 @@
       <div class="p-grp">Scene</div>
       <label class="p-ck-row"><input type="checkbox" id="ckGrid" checked> Ground grid</label>
       <label class="p-ck-row"><input type="checkbox" id="ckWire"> Wireframe</label>
+      <label class="p-ck-row"><input type="checkbox" id="ckStitch" checked> Stitching (holes + thread)</label>
     </div>
   </div>
 
@@ -179,7 +181,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.1';
+  const APP_VERSION = 'v0.0.2';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -189,10 +191,16 @@
     leather:0x7a4a2b, roughness:0.78, thickness:2.0,
     stitch:0xe8d9a0,
     keyLight:1.5, ambient:0.6,
-    showGrid:true, wireframe:false,
-    panelMeshes:[],            // current pattern's meshes (for clear/rematerial)
+    showGrid:true, wireframe:false, showStitches:true,
+    panelMeshes:[],            // current pattern's panel meshes (for clear/rematerial)
+    stitchMeshes:[],           // hole + thread instanced meshes
+    threadMesh:null,           // ref for live thread-colour change
     docName:null,
+    lastData:null, lastName:null, // remembered for rebuilds (thickness change)
   };
+
+  // Stitch defaults from the loaded .lpd's settings (per-shape values override these).
+  const LP = { defMargin:3, defSpacing:3.38 };
 
   // ── three.js scene ──
   const stage = document.getElementById('stage');
@@ -256,15 +264,12 @@
   }
   new ResizeObserver(resize).observe(stage);
 
-  // ── Render loop ──
+  // ── Render loop ── (kicked off at the very end, after all definitions)
   function tick(){
     controls.update();
     renderer.render(scene, camera);
     requestAnimationFrame(tick);
   }
-  resetCamera();
-  resize();
-  tick();
 
   function resetCamera(){
     camera.position.copy(HOME_CAM);
@@ -280,86 +285,349 @@
     });
   }
 
-  // ── .lpd → flat 3D panels ─────────────────────────────────────────────
-  // mm == world units. Shapes are extruded a little (thickness) and laid flat
-  // in the XZ plane. v0.0.1 handles rect (with corner radius), circle, and
-  // path (anchor polygon; bezier curvature is a TODO — see DEVLOG).
-  function loadPattern(data, name){
+  // ════════════════════════════════════════════════════════════════════════
+  // GEOMETRY + STITCH KERNEL — ported VERBATIM from the Leather Pattern
+  // Designer (index.html). These are the authoritative shape-outline and
+  // saddle-stitch hole algorithms; keep in sync with the main app + the
+  // `stitch-edge-logic` skill. Only the margin/spacing defaults are rebound
+  // from S.* (main app) to LP.* (this app). Coordinates are mm, Y-down (SVG).
+  // ════════════════════════════════════════════════════════════════════════
+  const BEZIER_K = 0.5522847498;
+  const SEG_STEPS = 40;
+  const HARSH_ANGLE = 0.6;
+
+  function cubicPt(p0,c1,c2,p1,t){
+    const mt=1-t;
+    return {
+      x:mt*mt*mt*p0.x+3*mt*mt*t*c1.x+3*mt*t*t*c2.x+t*t*t*p1.x,
+      y:mt*mt*mt*p0.y+3*mt*mt*t*c1.y+3*mt*t*t*c2.y+t*t*t*p1.y,
+    };
+  }
+  function sampleSeg(p0,p1,steps=SEG_STEPS){
+    const pts=[]; const c1={x:p0.cp2x,y:p0.cp2y}, c2={x:p1.cp1x,y:p1.cp1y};
+    for(let i=0;i<=steps;i++) pts.push(cubicPt(p0,c1,c2,p1,i/steps));
+    return pts;
+  }
+  function samplePath(sh){
+    const allPts=[], pts=sh.points;
+    for(let i=0;i<pts.length-1;i++){ const seg=sampleSeg(pts[i],pts[i+1]); if(i>0) seg.shift(); allPts.push(...seg); }
+    if(sh.closed&&pts.length>1){ const seg=sampleSeg(pts[pts.length-1],pts[0]); seg.shift(); allPts.push(...seg); }
+    return allPts;
+  }
+  function rectRounded(s){ return s.type==='rect' && s.radii && s.radii.some(r=>r>0); }
+  function roundedRectPathPts(sh){
+    const {x,y,w,h}=sh;
+    const maxR=Math.min(w/2,h/2);
+    const [rtl,rtr,rbr,rbl]=(sh.radii||[0,0,0,0]).map(r=>Math.min(Math.max(0,r),maxR));
+    const k=BEZIER_K; const pts=[];
+    const addCorner=(r, eInX,eInY, vX,vY, eOutX,eOutY)=>{
+      if(r<=0){ pts.push({x:vX,y:vY, cp1x:vX,cp1y:vY, cp2x:vX,cp2y:vY, corner:true}); return; }
+      pts.push({x:eInX, y:eInY,  cp1x:eInX, cp1y:eInY,                 cp2x:eInX+(vX-eInX)*k, cp2y:eInY+(vY-eInY)*k, corner:false});
+      pts.push({x:eOutX,y:eOutY, cp1x:eOutX+(vX-eOutX)*k, cp1y:eOutY+(vY-eOutY)*k, cp2x:eOutX, cp2y:eOutY,           corner:false});
+    };
+    addCorner(rtl,  x,        y+rtl,    x,    y,    x+rtl,    y      );
+    addCorner(rtr,  x+w-rtr,  y,        x+w,  y,    x+w,      y+rtr  );
+    addCorner(rbr,  x+w,      y+h-rbr,  x+w,  y+h,  x+w-rbr,  y+h    );
+    addCorner(rbl,  x+rbl,    y+h,      x,    y+h,  x,        y+h-rbl);
+    return pts;
+  }
+  function shapeEdgeCount(sh){
+    if(sh.type==='rect') return 4;
+    if(sh.type==='path') return sh.closed ? sh.points.length : Math.max(0, sh.points.length-1);
+    return 0;
+  }
+  function edgeStitched(sh, e){
+    if(!sh.hasStitch) return false;
+    if(!sh.stitchEdges) return true;
+    return sh.stitchEdges.includes(e);
+  }
+  function stitchRect(sh){
+    const m=sh.stitchMargin??LP.defMargin, sp=sh.stitchSpacing??LP.defSpacing;
+    const x1=sh.x+m,y1=sh.y+m,w=sh.w-2*m,h=sh.h-2*m;
+    if(w<=0||h<=0) return null;
+    const x2=x1+w,y2=y1+h;
+    const C=[{x:x1,y:y1},{x:x2,y:y1},{x:x2,y:y2},{x:x1,y:y2}];
+    const pts=[];
+    for(let e=0;e<4;e++){
+      if(!edgeStitched(sh,e)) continue;
+      const a=C[e], b=C[(e+1)%4];
+      const dx=b.x-a.x, dy=b.y-a.y, len=Math.hypot(dx,dy);
+      const ang=Math.atan2(dy,dx), ux=dx/len, uy=dy/len;
+      const N=Math.max(1,Math.round(len/sp)), step=len/N;
+      for(let i=0;i<N;i++){ const d=i*step; pts.push({x:a.x+ux*d, y:a.y+uy*d, forced:i===0, hl:i===0, a:ang}); }
+      if(!edgeStitched(sh,(e+1)%4)) pts.push({x:b.x, y:b.y, forced:true, hl:true, a:ang});
+    }
+    if(!pts.length) return null;
+    return {pts};
+  }
+  function stitchCircle(sh){
+    const m=sh.stitchMargin??LP.defMargin, sp=sh.stitchSpacing??LP.defSpacing;
+    const r=sh.r-m; if(r<=0) return null;
+    const circ=2*Math.PI*r, count=Math.max(8,Math.round(circ/sp));
+    const pts=[];
+    for(let i=0;i<count;i++){
+      const a=(i/count)*2*Math.PI-Math.PI/2;
+      pts.push({x:sh.cx+r*Math.cos(a),y:sh.cy+r*Math.sin(a),forced:false,hl:false,a:a+Math.PI/2});
+    }
+    return {pts};
+  }
+  function stitchPath(sh){
+    const m=sh.stitchMargin??LP.defMargin, sp=sh.stitchSpacing??LP.defSpacing;
+    const samples=samplePath(sh);
+    if(samples.length<3) return null;
+    let area=0;
+    for(let i=0;i<samples.length;i++){ const j=(i+1)%samples.length; area+=samples[i].x*samples[j].y - samples[j].x*samples[i].y; }
+    const sign = area<0 ? -1 : 1;
+    const off=[];
+    for(let i=0;i<samples.length;i++){
+      const prev=samples[(i-1+samples.length)%samples.length];
+      const next=samples[(i+1)%samples.length];
+      const dx=next.x-prev.x, dy=next.y-prev.y;
+      const L=Math.sqrt(dx*dx+dy*dy);
+      if(L<0.001){off.push({...samples[i]});continue;}
+      off.push({x:samples[i].x - dy/L*sign*m, y:samples[i].y + dx/L*sign*m});
+    }
+    {
+      const np=sh.points.length;
+      const hyp=(p,q)=>Math.hypot(p.x-q.x,p.y-q.y);
+      const before = idx => { let j=(idx-1+off.length)%off.length; if(hyp(samples[j],samples[idx])<1e-6) j=(j-1+off.length)%off.length; return j; };
+      const after  = idx => { let j=(idx+1)%off.length; if(hyp(samples[j],samples[idx])<1e-6) j=(j+1)%off.length; return j; };
+      const harshA = k => {
+        if(!sh.closed && (k<=0 || k>=np-1)) return false;
+        const idx=k*SEG_STEPS, a=samples[before(idx)], p=samples[idx], b=samples[after(idx)];
+        let d=Math.atan2(b.y-p.y,b.x-p.x)-Math.atan2(p.y-a.y,p.x-a.x);
+        while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
+        return Math.abs(d)>HARSH_ANGLE;
+      };
+      const inwardN=(a,b)=>{ const ax=b.x-a.x, ay=b.y-a.y, AL=Math.hypot(ax,ay)||1; return {x:-ay/AL*sign, y:ax/AL*sign}; };
+      const miterAt = idx => {
+        const p=samples[idx], n1=inwardN(samples[before(idx)],p), n2=inwardN(p,samples[after(idx)]);
+        const kk=1+(n1.x*n2.x+n1.y*n2.y);
+        if(kk<0.1){ off[idx]={x:p.x+n1.x*m, y:p.y+n1.y*m}; return; }
+        let vx=m*(n1.x+n2.x)/kk, vy=m*(n1.y+n2.y)/kk;
+        const vlen=Math.hypot(vx,vy), cap=m*2;
+        if(vlen>cap){ vx=vx/vlen*cap; vy=vy/vlen*cap; }
+        off[idx]={x:p.x+vx, y:p.y+vy};
+      };
+      for(let k=0;k<np;k++){
+        if(!harshA(k)) continue;
+        miterAt(k*SEG_STEPS);
+        if(sh.closed && k===0) miterAt(off.length-1);
+      }
+    }
+    const angAt=i=>{ const a=samples[Math.max(0,i-1)], b=samples[Math.min(samples.length-1,i+1)]; return Math.atan2(b.y-a.y, b.x-a.x); };
+    const angOut=i=>{ const a=samples[i], b=samples[Math.min(samples.length-1,i+1)]; return Math.atan2(b.y-a.y, b.x-a.x); };
+    const angIn =i=>{ const a=samples[Math.max(0,i-1)], b=samples[i]; return Math.atan2(b.y-a.y, b.x-a.x); };
+    const near=(p,q)=>Math.hypot(p.x-q.x,p.y-q.y)<1e-6;
+    const sBefore=i=>{ let j=i-1; if(j<0) j=sh.closed?samples.length-1:0; if(near(samples[j],samples[i])) j=(j-1+samples.length)%samples.length; return j; };
+    const sAfter =i=>{ let j=i+1; if(j>=samples.length) j=sh.closed?0:samples.length-1; if(near(samples[j],samples[i])) j=(j+1)%samples.length; return j; };
+    const dist=(p,q)=>Math.hypot(p.x-q.x, p.y-q.y);
+    const n=sh.points.length;
+    const segCount = sh.closed ? n : n-1;
+    if(segCount<1) return null;
+    const harsh = k => {
+      const a=((k%n)+n)%n;
+      if(!sh.closed && (a<=0 || a>=n-1)) return false;
+      const idx=a*SEG_STEPS, P=samples[sBefore(idx)], Q=samples[idx], R=samples[sAfter(idx)];
+      let d=Math.atan2(R.y-Q.y,R.x-Q.x)-Math.atan2(Q.y-P.y,Q.x-P.x);
+      while(d>Math.PI)d-=2*Math.PI; while(d<-Math.PI)d+=2*Math.PI;
+      return Math.abs(d)>HARSH_ANGLE;
+    };
+    const pts=[];
+    const runs=[]; let cur=null;
+    for(let e=0;e<segCount;e++){
+      const i0=e*SEG_STEPS;
+      const i1=(sh.closed && e===segCount-1) ? off.length-1 : (e+1)*SEG_STEPS;
+      if(!edgeStitched(sh,e)){ cur=null; continue; }
+      const startIsHarsh=harsh(e);
+      const prevStitched=edgeStitched(sh,((e-1)%segCount+segCount)%segCount);
+      if(!cur || !prevStitched || startIsHarsh){ cur={idx:[i0], startHarsh:startIsHarsh}; runs.push(cur); }
+      for(let i=i0+1;i<=i1;i++) cur.idx.push(i);
+      const nextStitched=sh.closed?edgeStitched(sh,(e+1)%segCount):(e<segCount-1&&edgeStitched(sh,e+1));
+      cur.endHarsh=harsh((e+1)%n);
+      cur.endsRun=!nextStitched;
+    }
+    for(const run of runs){
+      let poly=run.idx.map(i=>off[i]), idx=run.idx.slice();
+      if(run.startHarsh && poly.length>2){
+        const P=poly[0], ang=angOut(idx[0]), ux=Math.cos(ang), uy=Math.sin(ang);
+        let c=1; while(c<poly.length-1 && (poly[c].x-P.x)*ux+(poly[c].y-P.y)*uy<=0) c++;
+        if(c>1){ poly.splice(1,c-1); idx.splice(1,c-1); }
+      }
+      if(run.endHarsh && poly.length>2){
+        const L=poly.length-1, P=poly[L], ang=angIn(idx[L]), ux=Math.cos(ang), uy=Math.sin(ang);
+        let c=poly.length-2; while(c>0 && (poly[c].x-P.x)*ux+(poly[c].y-P.y)*uy>=0) c--;
+        const drop=poly.length-2-c;
+        if(drop>0){ poly.splice(c+1,drop); idx.splice(c+1,drop); }
+      }
+      const cum=[0];
+      for(let k=1;k<poly.length;k++) cum.push(cum[k-1]+dist(poly[k-1],poly[k]));
+      const total=cum[cum.length-1];
+      const sIdx=idx[0], eIdx=idx[idx.length-1];
+      if(total<1e-6){ pts.push({x:poly[0].x,y:poly[0].y,forced:true,hl:run.startHarsh,a:angOut(sIdx)}); continue; }
+      const N=Math.max(1,Math.round(total/sp)), step=total/N;
+      const lastK=run.endsRun?N:N-1;
+      let seg=0;
+      for(let k=0;k<=lastK;k++){
+        const t=Math.min(k*step,total);
+        while(seg<poly.length-2 && cum[seg+1]<t) seg++;
+        const segLen=(cum[seg+1]-cum[seg])||1, f=(t-cum[seg])/segLen;
+        const x=poly[seg].x+(poly[seg+1].x-poly[seg].x)*f;
+        const y=poly[seg].y+(poly[seg+1].y-poly[seg].y)*f;
+        const isStart=k===0, isEnd=k===N;
+        const a = isStart ? angOut(sIdx) : isEnd ? angIn(eIdx) : angAt(idx[seg]);
+        pts.push({x,y,forced:isStart||isEnd, hl:(isStart&&run.startHarsh)||(isEnd&&run.endHarsh), a});
+      }
+    }
+    if(!pts.length) return null;
+    const minGap=sp*0.5;
+    const clean=[];
+    for(const p of pts){
+      let last=clean[clean.length-1];
+      if(last && dist(p,last)<minGap){
+        if(p.forced&&!last.forced){
+          while(clean.length && !clean[clean.length-1].forced && dist(p,clean[clean.length-1])<minGap) clean.pop();
+          clean.push(p); continue;
+        }
+        if(!p.forced) continue;
+      }
+      clean.push(p);
+    }
+    if(sh.closed && clean.length>2){
+      const a=clean[0], b=clean[clean.length-1];
+      if(dist(a,b)<minGap){ if(b.forced&&!a.forced) clean.shift(); else if(!b.forced) clean.pop(); }
+    }
+    return {pts:clean};
+  }
+  function stitchFor(s){
+    if(!s.hasStitch) return null;
+    if(rectRounded(s)) return stitchPath({points:roundedRectPathPts(s),closed:true,hasStitch:true,stitchMargin:s.stitchMargin,stitchSpacing:s.stitchSpacing});
+    return s.type==='rect'?stitchRect(s):s.type==='circle'?stitchCircle(s):stitchPath(s);
+  }
+  // ════════════════════ end ported kernel ════════════════════
+
+  // ── .lpd → flat 3D panels + stitching ──────────────────────────────────
+  // mm == world units. Each piece's outline is sampled to a polygon, extruded
+  // by S.thickness, and laid flat in the XZ plane (shape Y → world -Z, top
+  // face at world y = thickness).
+  function loadPattern(data, name, keepCam=false){
     clearScene();
+    S.lastData = data; S.lastName = name;
     S.docName = name || 'pattern';
+    LP.defMargin  = data?.settings?.defMargin  ?? 3;
+    LP.defSpacing = data?.settings?.defSpacing ?? 3.38;
     const shapes = Array.isArray(data?.shapes) ? data.shapes : [];
     let made = 0;
+    const holes = [], threads = [];
     for (const sh of shapes){
       if (sh.hidden) continue;
-      const shape = shapeFor(sh);
-      if (!shape) continue;
-      const geo = new THREE.ExtrudeGeometry(shape, {
-        depth:S.thickness, bevelEnabled:false, curveSegments:24,
-      });
-      // Extrude builds in XY+Z; rotate so the panel lies flat (XZ plane).
-      geo.rotateX(-Math.PI/2);
-      geo.computeVertexNormals();
-      const mesh = new THREE.Mesh(geo, leatherMaterial());
-      mesh.castShadow = true; mesh.receiveShadow = true;
-      patternGroup.add(mesh);
-      S.panelMeshes.push(mesh);
-      made++;
+      const poly = outlinePolygon(sh);
+      if (poly && poly.length >= 3){
+        const geo = new THREE.ExtrudeGeometry(shapeFromPolygon(poly), { depth:S.thickness, bevelEnabled:false });
+        geo.rotateX(-Math.PI/2);          // lay flat: shape XY → world XZ, top at y=thickness
+        geo.computeVertexNormals();
+        const mesh = new THREE.Mesh(geo, leatherMaterial());
+        mesh.castShadow = true; mesh.receiveShadow = true;
+        patternGroup.add(mesh);
+        S.panelMeshes.push(mesh);
+        made++;
+      }
+      collectStitches(sh, holes, threads);
     }
+    if (holes.length)   addHoleMesh(holes);
+    if (threads.length) addThreadMesh(threads);
+    applyStitchVisibility();
     recentrePattern();
-    resetCamera();
+    if (!keepCam) resetCamera();
     document.getElementById('empty-hint').style.display = made ? 'none' : '';
+    const hp = holes.length ? ` · ${holes.length} stitch holes` : '';
     flash(`Loaded ${made} piece${made===1?'':'s'} from ${S.docName}`);
-    setInfo(`${S.docName} · ${made} pcs`);
+    setInfo(`${S.docName} · ${made} pcs${hp}`);
   }
 
-  // Build a THREE.Shape (in mm, XY) for one .lpd shape.
-  function shapeFor(sh){
+  // Sampled mm polygon for a shape's outline (true beziers for pen paths).
+  function outlinePolygon(sh){
     if (sh.type === 'rect'){
-      return roundedRectShape(sh.x||0, sh.y||0, sh.w||0, sh.h||0, cornerRadius(sh));
+      if (rectRounded(sh)) return samplePath({ points:roundedRectPathPts(sh), closed:true });
+      const {x,y,w,h} = sh; if (!(w>0 && h>0)) return null;
+      return [{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}];
     }
     if (sh.type === 'circle'){
-      const cx = (sh.cx!=null) ? sh.cx : (sh.x||0) + (sh.w||0)/2;
-      const cy = (sh.cy!=null) ? sh.cy : (sh.y||0) + (sh.h||0)/2;
-      const r  = (sh.r!=null) ? sh.r : Math.min(sh.w||0, sh.h||0)/2;
+      const cx = sh.cx ?? ((sh.x||0)+(sh.w||0)/2);
+      const cy = sh.cy ?? ((sh.y||0)+(sh.h||0)/2);
+      const r  = sh.r  ?? Math.min(sh.w||0, sh.h||0)/2;
       if (r <= 0) return null;
-      const s = new THREE.Shape();
-      s.absarc(cx, cy, r, 0, Math.PI*2, false);
-      return s;
+      const N=72, out=[]; for (let i=0;i<N;i++){ const a=i/N*2*Math.PI; out.push({x:cx+r*Math.cos(a), y:cy+r*Math.sin(a)}); }
+      return out;
     }
-    if (sh.type === 'path' && Array.isArray(sh.pts) && sh.pts.length >= 2){
-      const s = new THREE.Shape();
-      sh.pts.forEach((p,i)=> i ? s.lineTo(p.x, p.y) : s.moveTo(p.x, p.y));
-      s.closePath();
-      return s;
+    if (sh.type === 'path' && Array.isArray(sh.points) && sh.points.length >= 2){
+      // sample every cubic segment; close the loop so it forms a fillable panel
+      const pts = sh.points, out = [];
+      for (let i=0;i<pts.length-1;i++){ const seg=sampleSeg(pts[i],pts[i+1]); if(i>0) seg.shift(); out.push(...seg); }
+      const seg = sampleSeg(pts[pts.length-1], pts[0]); seg.shift(); out.push(...seg);
+      return out;
     }
-    return null; // text + unknown types are skipped in 3D
+    return null; // text + unknown types skipped in 3D
   }
-
-  function cornerRadius(sh){
-    if (sh.rad != null) return sh.rad;
-    const rs = [sh.rTL, sh.rTR, sh.rBR, sh.rBL].filter(v=>v!=null);
-    return rs.length ? Math.max(...rs) : 0;
-  }
-
-  function roundedRectShape(x, y, w, h, r){
+  function shapeFromPolygon(poly){
     const s = new THREE.Shape();
-    r = Math.max(0, Math.min(r, Math.min(w, h)/2));
-    if (r <= 0){
-      s.moveTo(x, y); s.lineTo(x+w, y); s.lineTo(x+w, y+h); s.lineTo(x, y+h); s.closePath();
-      return s;
-    }
-    s.moveTo(x+r, y);
-    s.lineTo(x+w-r, y);     s.quadraticCurveTo(x+w, y, x+w, y+r);
-    s.lineTo(x+w, y+h-r);   s.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
-    s.lineTo(x+r, y+h);     s.quadraticCurveTo(x, y+h, x, y+h-r);
-    s.lineTo(x, y+r);       s.quadraticCurveTo(x, y, x+r, y);
+    s.moveTo(poly[0].x, poly[0].y);
+    for (let i=1;i<poly.length;i++) s.lineTo(poly[i].x, poly[i].y);
     s.closePath();
     return s;
   }
 
+  // Stitch hole points + thread segments for one shape (appended to the arrays).
+  function collectStitches(sh, holes, threads){
+    if (sh.hidden || !sh.hasStitch) return;
+    const res = stitchFor(sh); if (!res || !res.pts.length) return;
+    const P = res.pts;
+    for (const p of P) holes.push(p);
+    const sp = sh.stitchSpacing ?? LP.defSpacing, tol = sp*1.8;
+    const join = (a,b)=>{ if (Math.hypot(b.x-a.x,b.y-a.y) <= tol) threads.push({a,b}); };
+    for (let i=0;i<P.length-1;i++) join(P[i],P[i+1]);
+    // close the loop for whole-perimeter shapes
+    const wraps = sh.type!=='path' || sh.closed;
+    if (wraps && P.length>2) join(P[P.length-1], P[0]);
+  }
+
+  const HOLE_R=0.55, HOLE_H=0.7, THREAD_R=0.42;
+  function addHoleMesh(holes){
+    const geo=new THREE.CylinderGeometry(HOLE_R,HOLE_R,HOLE_H,10);
+    const mat=new THREE.MeshStandardMaterial({color:0x140d07, roughness:0.95});
+    const m=new THREE.InstancedMesh(geo,mat,holes.length);
+    const o=new THREE.Object3D();
+    for (let i=0;i<holes.length;i++){
+      o.position.set(holes[i].x, S.thickness-HOLE_H*0.25, -holes[i].y); // cylinder axis = Y → vertical
+      o.rotation.set(0,0,0); o.scale.set(1,1,1); o.updateMatrix();
+      m.setMatrixAt(i,o.matrix);
+    }
+    m.receiveShadow=true;
+    patternGroup.add(m); S.stitchMeshes.push(m);
+  }
+  function addThreadMesh(segs){
+    const geo=new THREE.CylinderGeometry(THREAD_R,THREAD_R,1,8); // unit-height; scaled per instance
+    const mat=new THREE.MeshStandardMaterial({color:S.stitch, roughness:0.55});
+    const m=new THREE.InstancedMesh(geo,mat,segs.length);
+    const o=new THREE.Object3D(), up=new THREE.Vector3(0,1,0), dir=new THREE.Vector3(), q=new THREE.Quaternion();
+    for (let i=0;i<segs.length;i++){
+      const a=segs[i].a, b=segs[i].b;
+      const ax=a.x, az=-a.y, bx=b.x, bz=-b.y;
+      dir.set(bx-ax, 0, bz-az); const L=dir.length()||1; dir.normalize();
+      q.setFromUnitVectors(up, dir);
+      o.position.set((ax+bx)/2, S.thickness+0.18, (az+bz)/2);
+      o.quaternion.copy(q); o.scale.set(1,L,1); o.updateMatrix();
+      m.setMatrixAt(i,o.matrix);
+    }
+    m.castShadow=true;
+    patternGroup.add(m); S.stitchMeshes.push(m); S.threadMesh=m;
+  }
+  function applyStitchVisibility(){ for (const m of S.stitchMeshes) m.visible = S.showStitches; }
+  function applyStitchColor(){ if (S.threadMesh) S.threadMesh.material.color.set(S.stitch); }
+
   // Centre the loaded pattern over the origin so the camera framing is sane.
   function recentrePattern(){
-    if (!S.panelMeshes.length) return;
+    if (!patternGroup.children.length) return;
     const box = new THREE.Box3().setFromObject(patternGroup);
     const c = box.getCenter(new THREE.Vector3());
     patternGroup.position.set(-c.x, patternGroup.position.y, -c.z);
@@ -367,19 +635,31 @@
 
   function clearScene(){
     for (const m of S.panelMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
-    S.panelMeshes = [];
+    for (const m of S.stitchMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
+    S.panelMeshes = []; S.stitchMeshes = []; S.threadMesh = null;
     patternGroup.position.set(0,0,0);
-    S.docName = null;
+    S.docName = null; S.lastData = null; S.lastName = null;
     document.getElementById('empty-hint').style.display = '';
     setInfo('no pattern loaded');
   }
 
-  // A built-in sample so the scene is never empty on first run.
+  // Full rebuild from the remembered doc, keeping the camera (for thickness change).
+  function rebuild(){ if (S.lastData) loadPattern(S.lastData, S.lastName, true); }
+
+  // A built-in sample so the scene is never empty on first run — shows a
+  // rounded+stitched rect, a stitched circle, and a stitched bezier path.
   function loadSample(){
-    loadPattern({ shapes:[
-      { type:'rect', x:0, y:0, w:90, h:120, rad:8, name:'Card pocket' },
-      { type:'rect', x:100, y:0, w:90, h:120, rad:8, name:'Back panel' },
-      { type:'circle', cx:240, cy:60, r:34, name:'Coin disc' },
+    const k=BEZIER_K, circPath=(cx,cy,r)=>([
+      {x:cx,   y:cy-r, cp1x:cx-r*k, cp1y:cy-r,   cp2x:cx+r*k, cp2y:cy-r  },
+      {x:cx+r, y:cy,   cp1x:cx+r,   cp1y:cy-r*k, cp2x:cx+r,   cp2y:cy+r*k},
+      {x:cx,   y:cy+r, cp1x:cx+r*k, cp1y:cy+r,   cp2x:cx-r*k, cp2y:cy+r  },
+      {x:cx-r, y:cy,   cp1x:cx-r,   cp1y:cy+r*k, cp2x:cx-r,   cp2y:cy-r*k},
+    ]);
+    loadPattern({ settings:{defMargin:3, defSpacing:3.38}, shapes:[
+      { type:'rect', x:0,   y:0, w:90, h:120, radii:[10,10,10,10], name:'Card pocket', hasStitch:true },
+      { type:'rect', x:100, y:0, w:90, h:120, radii:[4,4,4,4],     name:'Back panel',  hasStitch:true },
+      { type:'circle', cx:250, cy:60, r:34, name:'Coin disc', hasStitch:true },
+      { type:'path', closed:true, points:circPath(250,150,30), name:'Pen blob', hasStitch:true },
     ]}, 'sample panel');
   }
 
@@ -390,17 +670,6 @@
       m.material.roughness = S.roughness;
       m.material.wireframe = S.wireframe;
       m.material.needsUpdate = true;
-    }
-  }
-  function rebuildIfThickness(){
-    // Thickness changes geometry, so reload from nothing only if we have a doc.
-    // Cheap approach for the skeleton: rebuild the sample/last doc is overkill;
-    // instead scale Y of existing extrusions to match new thickness.
-    for (const m of S.panelMeshes){
-      m.geometry.computeBoundingBox();
-      const bb = m.geometry.boundingBox;
-      const curr = Math.abs(bb.max.y - bb.min.y) || 1;
-      m.scale.y = S.thickness / curr * m.scale.y;
     }
   }
   function applyLighting(){
@@ -464,7 +733,14 @@
   document.getElementById('mi-reset').onclick  = resetCamera;
   document.getElementById('mi-grid').onclick   = e=>{ e.stopPropagation(); S.showGrid=!S.showGrid; applyGrid(); };
   document.getElementById('mi-wire').onclick   = e=>{ e.stopPropagation(); S.wireframe=!S.wireframe; setMenuCheck('chk-wire',S.wireframe); document.getElementById('ckWire').checked=S.wireframe; applyMaterials(); };
+  document.getElementById('mi-stitch').onclick = e=>{ e.stopPropagation(); S.showStitches=!S.showStitches; applyStitch(); };
   document.getElementById('mi-theme').onclick  = e=>{ e.stopPropagation(); S.light=!S.light; applyTheme(); };
+
+  function applyStitch(){
+    applyStitchVisibility();
+    setMenuCheck('chk-stitch', S.showStitches);
+    document.getElementById('ckStitch').checked = S.showStitches;
+  }
 
   // ── Props panel wiring ──
   const $ = id => document.getElementById(id);
@@ -475,19 +751,20 @@
     h.onchange=()=>{ if(/^#[0-9a-fA-F]{6}$/.test(h.value)) sync(h.value); };
   }
   bindColor('matColor','matColorHex', v=>{ S.leather=v; applyMaterials(); });
-  bindColor('stitchColor','stitchColorHex', v=>{ S.stitch=v; });
+  bindColor('stitchColor','stitchColorHex', v=>{ S.stitch=v; applyStitchColor(); });
 
   function bindRange(id, valId, set, fmt){
     const r=$(id), v=$(valId);
     r.oninput=()=>{ const n=parseFloat(r.value); v.textContent=fmt?fmt(n):n; set(n); };
   }
   bindRange('matRough','matRoughV', n=>{ S.roughness=n; applyMaterials(); }, n=>n.toFixed(2));
-  bindRange('matThick','matThickV', n=>{ S.thickness=n; rebuildIfThickness(); }, n=>n.toFixed(1));
+  bindRange('matThick','matThickV', n=>{ S.thickness=n; rebuild(); }, n=>n.toFixed(1));
   bindRange('lightKey','lightKeyV', n=>{ S.keyLight=n; applyLighting(); }, n=>n.toFixed(2));
   bindRange('lightAmb','lightAmbV', n=>{ S.ambient=n; applyLighting(); }, n=>n.toFixed(2));
 
   $('ckGrid').onchange = ()=>{ S.showGrid=$('ckGrid').checked; applyGrid(); };
   $('ckWire').onchange = ()=>{ S.wireframe=$('ckWire').checked; setMenuCheck('chk-wire',S.wireframe); applyMaterials(); };
+  $('ckStitch').onchange = ()=>{ S.showStitches=$('ckStitch').checked; applyStitch(); };
 
   // ── Keyboard ──
   addEventListener('keydown', e=>{
@@ -508,6 +785,27 @@
 
   // initial menu checkmark state
   setMenuCheck('chk-grid', true);
+
+  // Start rendering LAST — after every function/const above is defined — and
+  // guard it so a GL hiccup (e.g. headless software-GL under the smoke tests)
+  // can't abort the script and leave the kernel/loader undefined.
+  try { resetCamera(); resize(); tick(); } catch (e) { console.error('render init failed:', e); }
+
+  // ── Desktop (Tauri) launch-file hook — no-op in a plain browser ──
+  // When opened via "Open with > Leather Studio 3D" on a .lpd, the Rust side hands
+  // the path+contents through `take_launch_file`; a 2nd launch emits `open-lpd`.
+  (function desktopLaunch(){
+    const T = window.__TAURI__;
+    if (!T) return; // browser build — nothing to do
+    const loadText = (content, path)=>{
+      try { loadPattern(JSON.parse(content), (path||'pattern').split(/[\\/]/).pop().replace(/\.[^.]+$/,'')); }
+      catch { flash('Could not open the launched file'); }
+    };
+    try {
+      T.core.invoke('take_launch_file').then(res=>{ if (res) loadText(res[1], res[0]); });
+      T.event.listen('open-lpd', e=>{ const [path, content] = e.payload; loadText(content, path); });
+    } catch(err){ /* older Tauri global shape — ignore */ }
+  })();
   </script>
 </body>
 </html>

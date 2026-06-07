@@ -5,6 +5,44 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.2 — Pen paths + stitching + desktop wrapper + smoke tests (2026-06-07)
+
+Second pass on the framework, addressing user feedback ("pen shapes don't show, no
+stitch holes/thread") plus a desktop exe and a standalone test harness.
+
+- **Pen/path render fix.** The loader looked for `sh.pts`; real `.lpd` path shapes use
+  **`points`** with cubic control points (`{x,y,cp1x,cp1y,cp2x,cp2y,corner}` + `closed`).
+  Rewrote outline building as `outlinePolygon(sh)` -> sampled mm polygon -> `shapeFromPolygon`
+  -> `ExtrudeGeometry`, so pen pieces now render with **true bezier curvature** (sampled, not
+  anchor-only). Rect now honours the per-corner **`radii`** array (matches the main app), circle
+  unchanged.
+- **Stitching in 3D.** Ported the Pattern Designer's **stitch-edge-logic kernel VERBATIM**
+  (`cubicPt`/`sampleSeg`/`samplePath`/`roundedRectPathPts`/`rectRounded`/`shapeEdgeCount`/
+  `edgeStitched`/`stitchRect`/`stitchCircle`/`stitchPath`/`stitchFor`) — only the margin/spacing
+  defaults are rebound to `LP.*`. `collectStitches` turns each shape's holes into instanced
+  geometry: **holes** = dark cylinders sunk into the top face, **thread** = thread-coloured
+  cylinders spanning consecutive holes (gap-limited so partial-edge runs don't bridge). New
+  View ▸ Stitching toggle + Scene panel checkbox; thread colour is live. Defaults read from the
+  doc's `settings.defMargin/defSpacing`, per-shape `stitchMargin/stitchSpacing/stitchEdges`
+  respected.
+- **Desktop wrapper (`desktop/`).** Tauri v2 shell mirroring the Pattern Designer: `build.rs`
+  copies `index.html` **and `vendor/`** into `dist/`; `main.rs` = single-instance + `take_launch_file`
+  + `open-lpd` event so "Open with -> Leather Studio 3D" loads a `.lpd` straight into the viewer.
+  Frontend has a `window.__TAURI__` launch hook (no-op in browser). **No** `.lpd` association
+  (the editor owns it) and **no** updater yet (needs its own key/repo/pipeline). Build with
+  `cargo tauri build`; not yet built here.
+- **Standalone smoke tests (`tests/`).** `run-smoke.ps1` (quick/full) injects `smoke-harness.js`
+  into a copy of `index.html`, runs headless Edge (software GL), and greps a JSON result — like
+  LPD but **writes the temp page to the project root** so `./vendor/` resolves, and passes
+  SwiftShader flags (the kernel is defined after `WebGLRenderer`). **Full 26/26, quick 11/11.**
+  `run-build-smoke.ps1` = 19/19 static build-wiring checks (version sync, Rust<->JS contract).
+  Slash commands `/smoketest-quick` `/smoketest-full`; double-click `run-smoke.cmd`. Runs use no
+  Claude credits/context.
+- Also: render loop now kicks off **last** (after all definitions) inside a try, so a GL hiccup
+  can't leave the kernel undefined. Version bumped to **v0.0.2** across index/tauri.conf/Cargo/ledger.
+
+---
+
 ## v0.0.1 — Project framework / Phase-1 skeleton (2026-06-07)
 
 **First commit.** Stood up Leather Studio 3D as a **separate product / separate git repo** beside

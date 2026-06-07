@@ -1,5 +1,5 @@
 # Leather Studio 3D — Keyboard & Mouse Reference
-_v0.0.1_
+_v0.0.2_
 
 ---
 
@@ -27,12 +27,14 @@ _v0.0.1_
 |-------|--------|
 | View ▸ Ground grid | Toggle the grid (also in Scene panel) |
 | View ▸ Wireframe | Toggle wireframe (also in Scene panel) |
+| View ▸ Stitching | Toggle stitch holes + thread (also in Scene panel) |
 | View ▸ Light mode | Toggle light / dark theme |
 
 ## Props panel
 
 - **Material** — leather colour (picker + hex), roughness, thickness.
-- **Stitching** — thread colour (hole rendering arrives with seam data, Phase 2).
+- **Stitching** — thread colour (live). Holes + thread are generated from the pattern's
+  saddle-stitch data; toggle their visibility in Scene / View ▸ Stitching.
 - **Lighting** — key + ambient light intensity.
 - **Scene** — ground grid, wireframe.
 

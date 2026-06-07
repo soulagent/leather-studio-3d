@@ -1,0 +1,7 @@
+{
+  "_comment": "Build ledger for the packaged desktop exe. APP_VERSION (dev/working number) lives in index.html; each build mints a buildTag = two random words + -V<buildCount>. On the next build: increment buildCount, generate two fresh random words, set buildTag, then cargo tauri build. Mirrors the Leather Pattern Designer's workflow.",
+  "devVersion": "0.0.2",
+  "buildCount": 0,
+  "buildTag": null,
+  "history": []
+}

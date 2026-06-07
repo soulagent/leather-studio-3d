@@ -7,7 +7,7 @@
 
 # Local test / scratch artifacts
 samples/_scratch*
-tests/_run.html
+_run.html
 tests/_dump.out
 tests/_dump.err
 

@@ -1,0 +1,7 @@
+# Rust/Tauri build tree (multi-GB) and the build-time frontend copy
+src-tauri/target/
+src-tauri/gen/
+dist/
+
+# Build logs (one per /build)
+build-*.log

@@ -1,0 +1,18 @@
+[package]
+name = "leather-studio-3d"
+version = "0.0.2"
+description = "Leather Studio 3D - desktop wrapper (Tauri v2)"
+edition = "2021"
+rust-version = "1.77"
+
+# The desktop shell is deliberately minimal: it only hosts the canonical
+# single-file app (../dist/index.html + ../dist/vendor, a build-time copy of the
+# repo-root index.html + vendor/). Keep app logic in index.html so the browser
+# fallback stays valid.
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
