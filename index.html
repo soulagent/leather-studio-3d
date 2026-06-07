@@ -80,8 +80,16 @@
     flex:0 0 214px; background:var(--panel); border-left:1px solid var(--border);
     padding:0 11px; overflow-y:auto;
   }
-  .p-grp{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-heading);
-    margin:17px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--border-soft)}
+  /* collapsible sections (LPD .p-sec / .p-hd / .p-sec-body) */
+  .p-sec{border-bottom:1px solid var(--border-soft)}
+  .p-hd{font-size:9px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-heading);
+    padding:11px 0 6px;cursor:pointer;display:flex;justify-content:space-between;align-items:center;user-select:none}
+  .p-hd:hover{color:var(--text-2)}
+  .p-hd:focus-visible{outline:2px solid var(--accent-bright);outline-offset:-2px;border-radius:3px}
+  .p-tog{font-size:10px;color:var(--text-faint);line-height:1;transition:transform .15s}
+  .p-hd.closed .p-tog{transform:rotate(-90deg)}
+  .p-sec-body{overflow:hidden;max-height:1000px;padding-bottom:8px;transition:max-height .2s ease,padding .2s ease}
+  .p-sec-body.closed{max-height:0;padding-bottom:0}
   .p-field{display:flex;align-items:center;gap:8px;margin-bottom:6px}
   .p-lbl{flex:0 0 78px;font-size:11px;color:var(--text-2)}
   .p-inp,.p-sel{
@@ -182,23 +190,39 @@
     <div id="props-resize" title="Drag to resize"></div>
 
     <div id="props">
-      <div class="p-grp">Material</div>
-      <div class="p-field"><span class="p-lbl">Leather</span><input type="color" id="matColor" value="#7a4a2b"><input class="p-inp" id="matColorHex" value="#7a4a2b"></div>
-      <div class="p-field"><span class="p-lbl">Roughness</span><input type="range" id="matRough" min="0" max="1" step="0.01" value="0.78"><span class="p-val" id="matRoughV">0.78</span></div>
-      <div class="p-field"><span class="p-lbl">Thickness</span><input type="range" id="matThick" min="0.5" max="6" step="0.1" value="2.0"><input type="number" class="p-num" id="matThickN" min="0.5" max="6" step="0.1" value="2.0" aria-label="Thickness (mm)"></div>
+      <div class="p-sec">
+        <div class="p-hd" id="hd-material"><span>Material</span><span class="p-tog">&#9662;</span></div>
+        <div class="p-sec-body" id="body-material">
+          <div class="p-field"><span class="p-lbl">Leather</span><input type="color" id="matColor" value="#7a4a2b"><input class="p-inp" id="matColorHex" value="#7a4a2b"></div>
+          <div class="p-field"><span class="p-lbl">Roughness</span><input type="range" id="matRough" min="0" max="1" step="0.01" value="0.78"><span class="p-val" id="matRoughV">0.78</span></div>
+          <div class="p-field"><span class="p-lbl">Thickness</span><input type="range" id="matThick" min="0.5" max="6" step="0.1" value="2.0"><input type="number" class="p-num" id="matThickN" min="0.5" max="6" step="0.1" value="2.0" aria-label="Thickness (mm)"></div>
+        </div>
+      </div>
 
-      <div class="p-grp">Stitching</div>
-      <div class="p-field"><span class="p-lbl">Thread</span><input type="color" id="stitchColor" value="#e8d9a0"><input class="p-inp" id="stitchColorHex" value="#e8d9a0"></div>
-      <div class="p-note">Stitch-hole rendering arrives with seam data (Phase 2).</div>
+      <div class="p-sec">
+        <div class="p-hd" id="hd-stitching"><span>Stitching</span><span class="p-tog">&#9662;</span></div>
+        <div class="p-sec-body" id="body-stitching">
+          <div class="p-field"><span class="p-lbl">Thread</span><input type="color" id="stitchColor" value="#e8d9a0"><input class="p-inp" id="stitchColorHex" value="#e8d9a0"></div>
+          <div class="p-note">Holes + thread are generated from the pattern's saddle-stitch lines.</div>
+        </div>
+      </div>
 
-      <div class="p-grp">Lighting</div>
-      <div class="p-field"><span class="p-lbl">Key light</span><input type="range" id="lightKey" min="0" max="3" step="0.05" value="1.5"><span class="p-val" id="lightKeyV">1.5</span></div>
-      <div class="p-field"><span class="p-lbl">Ambient</span><input type="range" id="lightAmb" min="0" max="2" step="0.05" value="0.6"><span class="p-val" id="lightAmbV">0.6</span></div>
+      <div class="p-sec">
+        <div class="p-hd" id="hd-lighting"><span>Lighting</span><span class="p-tog">&#9662;</span></div>
+        <div class="p-sec-body" id="body-lighting">
+          <div class="p-field"><span class="p-lbl">Key light</span><input type="range" id="lightKey" min="0" max="3" step="0.05" value="1.5"><span class="p-val" id="lightKeyV">1.5</span></div>
+          <div class="p-field"><span class="p-lbl">Ambient</span><input type="range" id="lightAmb" min="0" max="2" step="0.05" value="0.6"><span class="p-val" id="lightAmbV">0.6</span></div>
+        </div>
+      </div>
 
-      <div class="p-grp">Scene</div>
-      <label class="p-ck-row"><input type="checkbox" id="ckGrid" checked> Ground grid</label>
-      <label class="p-ck-row"><input type="checkbox" id="ckWire"> Wireframe</label>
-      <label class="p-ck-row"><input type="checkbox" id="ckStitch" checked> Stitching (holes + thread)</label>
+      <div class="p-sec">
+        <div class="p-hd" id="hd-scene"><span>Scene</span><span class="p-tog">&#9662;</span></div>
+        <div class="p-sec-body" id="body-scene">
+          <label class="p-ck-row"><input type="checkbox" id="ckGrid" checked> Ground grid</label>
+          <label class="p-ck-row"><input type="checkbox" id="ckWire"> Wireframe</label>
+          <label class="p-ck-row"><input type="checkbox" id="ckStitch" checked> Stitching (holes + thread)</label>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -247,6 +271,16 @@
 
   // Stitch defaults from the loaded .lpd's settings (per-shape values override these).
   const LP = { defMargin:3, defSpacing:3.38 };
+
+  // ── localStorage helpers (file:// origin can throw; degrade silently) ──
+  const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
+  const lsSet = (k,v) => { try { localStorage.setItem(k, v); } catch {} };
+
+  // Theme: stored choice wins, else fall back to the OS preference. Apply the
+  // chrome class now (before scene setup) to minimise a dark→light flash; the
+  // scene background + grid are synced by applyTheme() at init.
+  S.light = (lsGet('ls3d-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')) === 'light';
+  document.body.classList.toggle('light', S.light);
 
   // ── three.js scene ──
   const stage = document.getElementById('stage');
@@ -763,6 +797,13 @@
   function setInfo(t){ document.getElementById('sb-info').textContent = t; }
   function setMenuCheck(id, on){ document.getElementById(id).textContent = on ? '✓' : ''; }
 
+  // Enter/Space activates a focusable non-button control; guarded so a key
+  // bubbling up from an inner input doesn't double-fire the container.
+  function kbActivate(e){
+    if (e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); e.currentTarget.click(); }
+  }
+
   // ── Themed dialogs (never native confirm/alert — ui-language rule) ──
   // confirmModal → Promise<bool>; alertModal = confirm with no Cancel.
   function isDesktop(){ return !!window.__TAURI__; }
@@ -820,7 +861,7 @@
   document.getElementById('mi-grid').onclick   = e=>{ e.stopPropagation(); S.showGrid=!S.showGrid; applyGrid(); };
   document.getElementById('mi-wire').onclick   = e=>{ e.stopPropagation(); S.wireframe=!S.wireframe; setMenuCheck('chk-wire',S.wireframe); document.getElementById('ckWire').checked=S.wireframe; applyMaterials(); };
   document.getElementById('mi-stitch').onclick = e=>{ e.stopPropagation(); S.showStitches=!S.showStitches; applyStitch(); };
-  document.getElementById('mi-theme').onclick  = e=>{ e.stopPropagation(); S.light=!S.light; applyTheme(); };
+  document.getElementById('mi-theme').onclick  = e=>{ e.stopPropagation(); S.light=!S.light; applyTheme(); lsSet('ls3d-theme', S.light?'light':'dark'); };
   document.getElementById('mi-update').onclick = ()=> checkForUpdates(true);
   document.getElementById('mi-about').onclick  = ()=> alertModal('Leather Studio 3D '+APP_VERSION+'\n\n3D preview companion to the Leather Pattern Designer.\nLoads a .lpd and previews the pieces in 3D.', 'About');
 
@@ -907,8 +948,6 @@
   (function propsResize(){
     const props=$('props'), handle=$('props-resize');
     const KEY='ls3d-props-w', MIN=170, MAX=460;
-    const lsGet=k=>{ try{ return localStorage.getItem(k); }catch{ return null; } };
-    const lsSet=(k,v)=>{ try{ localStorage.setItem(k,v); }catch{} };
     const saved=parseFloat(lsGet(KEY));
     if(saved>=MIN && saved<=MAX) props.style.flexBasis=saved+'px';
     let startX=0, startW=0, dragging=false;
@@ -927,6 +966,30 @@
       lsSet(KEY, Math.round(props.getBoundingClientRect().width)); resize(); };
     handle.addEventListener('pointerup', end);
     handle.addEventListener('pointercancel', end);
+  })();
+
+  // ── Collapsible property sections (LPD .p-sec/.p-hd; persisted) ──
+  (function initSections(){
+    const KEY='ls3d-sections';
+    let closed; try { closed = JSON.parse(lsGet(KEY)) || {}; } catch { closed = {}; }
+    document.querySelectorAll('.p-hd').forEach(hd=>{
+      const name = hd.id.slice(3);                 // hd-<name>
+      const body = document.getElementById('body-'+name);
+      const setOpen = open=>{
+        hd.classList.toggle('closed', !open);
+        body.classList.toggle('closed', !open);
+        hd.setAttribute('aria-expanded', open ? 'true' : 'false');
+      };
+      hd.setAttribute('role','button'); hd.tabIndex = 0; hd.setAttribute('aria-controls','body-'+name);
+      setOpen(!closed[name]);                        // restore (default open)
+      hd.addEventListener('click', ()=>{
+        const open = hd.classList.contains('closed'); // currently closed → opening
+        setOpen(open);
+        closed[name] = !open;
+        lsSet(KEY, JSON.stringify(closed));
+      });
+      hd.addEventListener('keydown', kbActivate);
+    });
   })();
 
   // ── Keyboard ──
@@ -952,7 +1015,7 @@
   // Start rendering LAST — after every function/const above is defined — and
   // guard it so a GL hiccup (e.g. headless software-GL under the smoke tests)
   // can't abort the script and leave the kernel/loader undefined.
-  try { resetCamera(); resize(); tick(); } catch (e) { console.error('render init failed:', e); }
+  try { applyTheme(); resetCamera(); resize(); tick(); } catch (e) { console.error('render init failed:', e); }
 
   // ── Desktop (Tauri) launch-file hook — no-op in a plain browser ──
   // When opened via "Open with > Leather Studio 3D" on a .lpd, the Rust side hands
