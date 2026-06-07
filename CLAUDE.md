@@ -47,9 +47,13 @@ The reference docs live in **`MD files/`**. Before making changes, read:
 
 - **mm == world units.** Pattern geometry is millimetres; in 3D, 1 unit = 1 mm. Don't conflate
   screen px and world mm.
-- **three.js is vendored, not from a CDN.** Imports go through the `<script type="importmap">`
-  (`three` → `./vendor/three.module.js`); `OrbitControls` imports `from 'three'`, so it resolves
-  through the same map. To bump three.js, re-download both files into `vendor/` at the same version.
+- **three.js is vendored as CLASSIC (non-module) scripts, not from a CDN.** `index.html` loads
+  `vendor/three.min.js` (UMD build → global `THREE`) then `vendor/OrbitControls.classic.js`
+  (sets `THREE.OrbitControls`), then the app's plain `<script>`. **Do NOT use ES modules / import
+  maps here** — Chromium blocks `import` over `file://`, which silently breaks the whole app when
+  the file is double-clicked (this exact bug bit v0.0.1; see DEVLOG). Pinned at **r0.147.0**, the
+  last three.js that still ships both the UMD global build and the classic `examples/js`
+  OrbitControls. To bump, re-download both files at a version that still has them.
 - **One shared PBR leather material**; live edits (colour/roughness/wireframe) re-apply across all
   panel meshes via `applyMaterials()`. Geometry-changing edits (thickness) are handled separately.
 - **`S` is the single app-state object.** `S.panelMeshes` holds the current pattern's meshes;

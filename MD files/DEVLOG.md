@@ -12,8 +12,16 @@ the Leather Pattern Designer, per the long-planned 3D companion (see the `compan
 
 What landed:
 - **`index.html`** — single-file app shell.
-  - **three.js vendored locally** (`vendor/three.module.js` + `OrbitControls.js`, pinned r0.160.0),
-    wired via `<script type="importmap">` so the app runs **fully offline, no CDN**.
+  - **three.js vendored locally as CLASSIC scripts** (`vendor/three.min.js` UMD → global `THREE`,
+    + `vendor/OrbitControls.classic.js`, pinned **r0.147.0**) so the app runs **fully offline, no
+    CDN, no build** — just double-click `index.html`.
+
+  **Fix during this session:** the first cut used ES modules + an import map (three r0.160.0).
+  That **silently failed when opening `index.html` over `file://`** — Chromium blocks `import`
+  for CORS, so the whole module never ran and File ▸ Open did nothing (the static menu HTML still
+  showed, masking it). Switched to classic `<script>` + global `THREE` (re-vendored r0.147.0, the
+  last release shipping both a UMD build and a classic OrbitControls). Verified headless that the
+  app script now executes and the WebGL canvas is created. **Rule: no ES modules in this app.**
   - **Scene**: PerspectiveCamera + damped `OrbitControls`, ambient + key (soft-shadow) + fill
     lights, a `ShadowMaterial` ground plane, a `GridHelper`, and a `patternGroup` container.
   - **`.lpd` → 3D pipeline**: `loadPattern` → `shapeFor` → `ExtrudeGeometry`, laying each piece

@@ -169,13 +169,14 @@
 
   <input type="file" id="filePick" accept=".lpd,.json" style="display:none">
 
-  <script type="importmap">
-  { "imports": { "three": "./vendor/three.module.js" } }
-  </script>
-
-  <script type="module">
-  import * as THREE from 'three';
-  import { OrbitControls } from './vendor/OrbitControls.js';
+  <!-- Classic (non-module) scripts so the app runs by simply double-clicking
+       index.html. ES-module imports are blocked over file:// in Chromium, so we
+       vendor the UMD build (sets global THREE) + the classic OrbitControls
+       (sets THREE.OrbitControls). No import map, no build, no server. -->
+  <script src="./vendor/three.min.js"></script>
+  <script src="./vendor/OrbitControls.classic.js"></script>
+  <script>
+  "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
   const APP_VERSION = 'v0.0.1';
@@ -207,7 +208,7 @@
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   stage.appendChild(renderer.domElement);
 
-  const controls = new OrbitControls(camera, renderer.domElement);
+  const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
 

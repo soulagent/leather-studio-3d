@@ -4,7 +4,8 @@ A companion to the **Leather Pattern Designer**: load a finished pattern (`.lpd`
 pieces in **3D** — leather material, stitch colour, full camera control, and lighting.
 
 The whole app is a single `index.html` with **no build step and no CDN** (three.js is vendored in
-`vendor/`), so it runs fully offline. Just open `index.html` in any modern browser.
+`vendor/` as plain scripts), so it runs fully offline. Just **double-click `index.html`** in any
+modern browser — no server needed.
 
 ---
 
@@ -40,5 +41,8 @@ them. The two apps share one visual + interaction design language (the `ui-langu
 
 ## 🛠️ Updating three.js
 
-three.js is vendored at a pinned version in `vendor/` (`three.module.js` + `OrbitControls.js`).
-To upgrade, re-download both files from the same release into `vendor/` — nothing else to do.
+three.js is vendored as **classic scripts** in `vendor/` (`three.min.js` UMD build +
+`OrbitControls.classic.js`), pinned at **r0.147.0** — the last release that ships both. They're
+classic (not ES modules) on purpose: browsers block module `import` over `file://`, so a module
+build breaks the double-click workflow. To upgrade, re-download both at a version that still
+provides a UMD build and a classic `examples/js` OrbitControls.

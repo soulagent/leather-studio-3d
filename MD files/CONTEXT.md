@@ -22,8 +22,8 @@ laid in the XZ plane (1 unit = 1 mm), with a PBR leather material, camera contro
 ```
 index.html         ← the entire app (UI + three.js scene + .lpd loader)
 vendor/
-  three.module.js  ← vendored three.js (pinned r0.160.0), via importmap "three"
-  OrbitControls.js ← vendored addon; imports `from 'three'` → resolves through the importmap
+  three.min.js              ← vendored three.js UMD build (pinned r0.147.0) → global THREE
+  OrbitControls.classic.js  ← classic addon (examples/js) → sets THREE.OrbitControls
 .working-on.txt    ← NOT app code. One line ("Leather Studio 3D") read by the shared global
                      Claude Code status line, which appends APP_VERSION parsed live from
                      index.html → "Working On: Leather Studio 3D v0.0.1". Don't put the
@@ -43,9 +43,11 @@ CLAUDE.md
 
 ## Architecture
 
-Single ES-module `<script type="module">` inside `index.html`. three.js is imported via an
-import map (`"three" → "./vendor/three.module.js"`); `OrbitControls` is imported from the local
-addon, which itself imports `from 'three'` and so resolves through the same map.
+Plain `<script>`s inside `index.html`: `vendor/three.min.js` (UMD → global `THREE`), then
+`vendor/OrbitControls.classic.js` (→ `THREE.OrbitControls`), then the app script. **Classic
+scripts on purpose** — ES-module `import` is blocked over `file://` in Chromium, so a module
+build silently fails when the file is double-clicked. Use `THREE.*` globals; don't reintroduce
+`import`/import maps (see DEVLOG v0.0.1 for the bug this fixed).
 
 ### The `S` state object
 One global `S` holds app state: material (`leather`, `roughness`, `thickness`), `stitch` colour,
@@ -117,5 +119,6 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
   in this file + SHORTCUTS.md together.
 - **All new UI follows the `ui-language` skill** — dark-first tokens + `body.light` override, one
   red accent, themed dialogs (never native), status flash for success.
-- **three.js stays vendored** (no CDN). To upgrade, re-download `three.module.js` +
-  `OrbitControls.js` at the same version into `vendor/`.
+- **three.js stays vendored as classic scripts** (no CDN, no ES modules — they break over
+  `file://`). To upgrade, re-download the UMD build + classic OrbitControls into `vendor/` at a
+  version that still ships both (≤ r0.147.0).
