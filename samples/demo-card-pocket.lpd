@@ -1,0 +1,57 @@
+{
+  "version": 14,
+  "meta": {
+    "created": "2026-06-05T07:06:27.158Z",
+    "units": "mm"
+  },
+  "settings": {
+    "defMargin": 3,
+    "defSpacing": 3.38,
+    "stitchStyle": "french",
+    "histLimit": 100,
+    "snapMM": 1,
+    "snapShapes": true,
+    "rotStep": 15,
+    "dimFontSize": 13,
+    "labelMM": 5,
+    "autoSaveInt": 300,
+    "page": {
+      "id": 1,
+      "name": "SI Test",
+      "preset": "A4",
+      "orient": "portrait",
+      "w": 210,
+      "h": 297,
+      "x": 0,
+      "y": 0
+    }
+  },
+  "artboards": [
+    {
+      "id": 1,
+      "name": "SI Test",
+      "preset": "A4",
+      "orient": "portrait",
+      "w": 210,
+      "h": 297,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "activeArtboard": 1,
+  "shapes": [
+    {
+      "id": 1,
+      "type": "rect",
+      "x": 16.072047543734925,
+      "y": 16.27789094772028,
+      "w": 79.21874999882178,
+      "h": 123.66874999829395,
+      "name": "SINGLE-INSTANCE TEST",
+      "rad": 5,
+      "hidden": false,
+      "locked": false
+    }
+  ],
+  "nextId": 2
+}

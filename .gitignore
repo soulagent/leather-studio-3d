@@ -1,0 +1,23 @@
+# Claude Code machine-specific settings (permissions etc.).
+# Shared .claude/commands/ + .claude/skills/ ARE tracked; only local settings are not.
+.claude/settings.local.json
+
+# Personal scratch (status-line "Working On" note — see MD files/CONTEXT.md)
+.working-on.txt
+
+# Local test / scratch artifacts
+samples/_scratch*
+tests/_run.html
+tests/_dump.out
+tests/_dump.err
+
+# Build output (none yet — desktop wrapper TBD)
+dist/
+desktop/src-tauri/target/
+desktop/src-tauri/gen/
+desktop/dist/
+desktop/build-*.log
+
+# OS cruft
+Thumbs.db
+.DS_Store
