@@ -3,12 +3,14 @@ _v0.0.2_
 
 ---
 
-## Camera (OrbitControls)
+## Camera (3ds Max scheme)
 
 | Input | Action |
 |-------|--------|
-| Left-drag | Orbit |
-| Scroll / pinch | Zoom (dolly) |
+| Middle-drag | Pan |
+| Alt + Middle-drag | Orbit (arc-rotate) |
+| Left-drag | Orbit (fallback for trackpads / 2-button mice) |
+| Scroll / pinch | Zoom (dolly to cursor) |
 | Right-drag | Pan |
 | `R` | Reset camera to home view |
 

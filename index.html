@@ -98,6 +98,13 @@
   .p-ck-row input{accent-color:var(--accent-bright)}
   .p-note{font-size:10px;color:var(--text-muted);margin:2px 0 6px}
   .p-val{flex:0 0 34px;text-align:right;font-size:11px;color:var(--text-2);font-variant-numeric:tabular-nums}
+  /* compact typable number (slider companion) */
+  .p-num{flex:0 0 50px;min-width:0;text-align:right;background:var(--raised);color:var(--text);
+    border:1px solid var(--border);border-radius:4px;padding:3px 5px;font:inherit;font-size:11px;font-variant-numeric:tabular-nums}
+  .p-num:focus{outline:none;border-color:var(--accent-bright)}
+  /* drag-to-resize handle between canvas and props (mirrors LPD) */
+  #props-resize{flex:0 0 6px;cursor:col-resize;background:transparent}
+  #props-resize:hover,#props-resize.drag{background:var(--accent-bright)}
 
   /* ── Status bar ── */
   #status{
@@ -168,15 +175,17 @@
       <div id="empty-hint">
         <b>Leather Studio 3D</b>
         <span>File &#9656; Open .lpd &mdash; or load the sample panel</span>
-        <span style="color:var(--text-faint)">drag to orbit &middot; scroll to zoom &middot; right-drag to pan</span>
+        <span style="color:var(--text-faint)">middle-drag to pan &middot; Alt+middle-drag to orbit &middot; scroll to zoom</span>
       </div>
     </div>
+
+    <div id="props-resize" title="Drag to resize"></div>
 
     <div id="props">
       <div class="p-grp">Material</div>
       <div class="p-field"><span class="p-lbl">Leather</span><input type="color" id="matColor" value="#7a4a2b"><input class="p-inp" id="matColorHex" value="#7a4a2b"></div>
       <div class="p-field"><span class="p-lbl">Roughness</span><input type="range" id="matRough" min="0" max="1" step="0.01" value="0.78"><span class="p-val" id="matRoughV">0.78</span></div>
-      <div class="p-field"><span class="p-lbl">Thickness</span><input type="range" id="matThick" min="0.5" max="6" step="0.1" value="2.0"><span class="p-val" id="matThickV">2.0</span></div>
+      <div class="p-field"><span class="p-lbl">Thickness</span><input type="range" id="matThick" min="0.5" max="6" step="0.1" value="2.0"><input type="number" class="p-num" id="matThickN" min="0.5" max="6" step="0.1" value="2.0" aria-label="Thickness (mm)"></div>
 
       <div class="p-grp">Stitching</div>
       <div class="p-field"><span class="p-lbl">Thread</span><input type="color" id="stitchColor" value="#e8d9a0"><input class="p-inp" id="stitchColorHex" value="#e8d9a0"></div>
@@ -256,6 +265,20 @@
   const controls = new THREE.OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
+
+  // ── 3ds Max-style navigation ──────────────────────────────────────────
+  // Middle-drag = Pan, Alt+Middle-drag = Orbit/arc-rotate, wheel = Zoom (to
+  // cursor). Left-drag also orbits as a fallback for trackpads / 2-button mice.
+  const MB = THREE.MOUSE;
+  controls.mouseButtons = { LEFT: MB.ROTATE, MIDDLE: MB.PAN, RIGHT: MB.PAN };
+  controls.zoomToCursor = true;
+  // OrbitControls reads mouseButtons at pointerdown; this capture-phase handler
+  // runs first, flipping MIDDLE to ROTATE while Alt is held (so Alt+MMB orbits).
+  renderer.domElement.addEventListener('pointerdown', e=>{
+    if (e.button === 1) controls.mouseButtons.MIDDLE = e.altKey ? MB.ROTATE : MB.PAN;
+  }, true);
+  // Suppress the browser's middle-click autoscroll over the canvas.
+  renderer.domElement.addEventListener('mousedown', e=>{ if (e.button === 1) e.preventDefault(); });
 
   // Lights
   const ambient = new THREE.AmbientLight(0xffffff, S.ambient);
@@ -857,13 +880,54 @@
     r.oninput=()=>{ const n=parseFloat(r.value); v.textContent=fmt?fmt(n):n; set(n); };
   }
   bindRange('matRough','matRoughV', n=>{ S.roughness=n; applyMaterials(); }, n=>n.toFixed(2));
-  bindRange('matThick','matThickV', n=>{ S.thickness=n; rebuild(); }, n=>n.toFixed(1));
   bindRange('lightKey','lightKeyV', n=>{ S.keyLight=n; applyLighting(); }, n=>n.toFixed(2));
   bindRange('lightAmb','lightAmbV', n=>{ S.ambient=n; applyLighting(); }, n=>n.toFixed(2));
+
+  // Thickness: slider + typable number, two-way synced and clamped.
+  (function bindThickness(){
+    const r=$('matThick'), nu=$('matThickN');
+    const mn=parseFloat(r.min), mx=parseFloat(r.max);
+    const apply=(v, echoToNum)=>{
+      if(isNaN(v)) return;
+      v=Math.min(mx, Math.max(mn, v));
+      S.thickness=v; r.value=v;
+      if(echoToNum) nu.value=+v.toFixed(2);
+      rebuild();
+    };
+    r.oninput  = ()=> apply(parseFloat(r.value), true);          // drag → echo to the number
+    nu.oninput = ()=> apply(parseFloat(nu.value), false);        // type → don't fight the caret
+    nu.onchange= ()=>{ let v=parseFloat(nu.value); if(isNaN(v)) v=S.thickness; nu.value=+Math.min(mx,Math.max(mn,v)).toFixed(2); apply(parseFloat(nu.value), false); };
+  })();
 
   $('ckGrid').onchange = ()=>{ S.showGrid=$('ckGrid').checked; applyGrid(); };
   $('ckWire').onchange = ()=>{ S.wireframe=$('ckWire').checked; setMenuCheck('chk-wire',S.wireframe); applyMaterials(); };
   $('ckStitch').onchange = ()=>{ S.showStitches=$('ckStitch').checked; applyStitch(); };
+
+  // ── Resizable properties panel (drag handle + persisted width; mirrors LPD) ──
+  (function propsResize(){
+    const props=$('props'), handle=$('props-resize');
+    const KEY='ls3d-props-w', MIN=170, MAX=460;
+    const lsGet=k=>{ try{ return localStorage.getItem(k); }catch{ return null; } };
+    const lsSet=(k,v)=>{ try{ localStorage.setItem(k,v); }catch{} };
+    const saved=parseFloat(lsGet(KEY));
+    if(saved>=MIN && saved<=MAX) props.style.flexBasis=saved+'px';
+    let startX=0, startW=0, dragging=false;
+    handle.addEventListener('pointerdown', e=>{
+      dragging=true; startX=e.clientX; startW=props.getBoundingClientRect().width;
+      handle.classList.add('drag'); handle.setPointerCapture(e.pointerId); e.preventDefault();
+    });
+    handle.addEventListener('pointermove', e=>{
+      if(!dragging) return;
+      const w=Math.min(MAX, Math.max(MIN, startW - (e.clientX-startX))); // panel is on the right
+      props.style.flexBasis=w+'px';
+      resize(); // keep the renderer matched to the canvas while dragging
+    });
+    const end=e=>{ if(!dragging) return; dragging=false; handle.classList.remove('drag');
+      try{ handle.releasePointerCapture(e.pointerId); }catch{}
+      lsSet(KEY, Math.round(props.getBoundingClientRect().width)); resize(); };
+    handle.addEventListener('pointerup', end);
+    handle.addEventListener('pointercancel', end);
+  })();
 
   // ── Keyboard ──
   addEventListener('keydown', e=>{
