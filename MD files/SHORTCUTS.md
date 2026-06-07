@@ -22,6 +22,8 @@ _v0.0.2_
 | Drag a `.lpd` onto the canvas | Open it |
 | File ▸ Load sample panel | Load the built-in demo pattern |
 | File ▸ Clear scene | Remove the loaded pattern |
+| File ▸ Welcome Screen | Reopen the home / welcome overlay |
+| `Esc` | Dismiss the welcome screen (to an empty scene) |
 
 ## View
 

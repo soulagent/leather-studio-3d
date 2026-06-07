@@ -144,6 +144,37 @@
   .modal-btn.primary{background:var(--accent);border-color:var(--accent-bright);color:#fff}
   .modal-btn.primary:hover{background:var(--accent-hover)}
   .modal-btn:focus-visible{outline:2px solid var(--accent-bright);outline-offset:2px}
+
+  /* ── Home / welcome screen (LPD-style, french-stitch framed) ── */
+  #home{position:fixed;inset:0;z-index:5000;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(circle at 50% 32%, #1b1b32 0%, #0d0d1f 72%)}
+  body.light #home{background:radial-gradient(circle at 50% 32%, #ffffff 0%, #e9ebf2 72%)}
+  #home.home-hidden{display:none}
+  #home-stitch{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+  .home-thread rect{fill:#caa86f;opacity:.85}
+  .home-card{position:relative;z-index:1;max-width:560px;width:88%;text-align:center;padding:10px}
+  .home-logo{font-size:24px;margin-bottom:10px;letter-spacing:.3em;color:var(--accent-bright)}
+  .home-card h1{font-size:24px;font-weight:700;color:var(--text);margin:0 0 8px}
+  .home-sub{font-size:13px;color:var(--text-muted);margin:0 0 26px}
+  .home-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-bottom:26px}
+  .home-btn{display:flex;align-items:center;gap:9px;padding:12px 20px;border-radius:9px;border:1px solid var(--border);
+    background:var(--raised);color:var(--text);font:inherit;font-size:14px;font-weight:600;cursor:pointer;transition:transform .1s,background .12s}
+  .home-btn:hover{background:var(--hover);transform:translateY(-1px)}
+  .home-btn:focus-visible{outline:2px solid var(--accent-bright);outline-offset:2px}
+  .home-btn-primary{background:var(--accent);border-color:var(--accent-bright);color:#fff}
+  .home-btn-primary:hover{background:var(--accent-hover)}
+  .home-btn-ic{font-size:16px;line-height:1}
+  .home-recents{max-width:430px;margin:0 auto;text-align:left}
+  .home-recents-h{font-size:9px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-heading);font-weight:700;margin-bottom:8px;padding-left:2px}
+  .home-recent{display:flex;align-items:center;gap:10px;width:100%;padding:9px 12px;margin-bottom:6px;border-radius:7px;
+    border:1px solid var(--border);background:var(--dialog);color:var(--text);font:inherit;font-size:13px;cursor:pointer;transition:background .12s,border-color .12s;text-align:left}
+  .home-recent:hover{background:var(--hover)}
+  .home-recent:focus-visible{outline:2px solid var(--accent-bright);outline-offset:2px}
+  .home-recent-ic{color:#e67e22;flex-shrink:0}
+  .home-recent-name{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .home-recent-time{font-size:11px;color:var(--text-faint);flex-shrink:0}
+  .home-skip{margin-top:22px;background:none;border:none;color:var(--text-muted);font:inherit;font-size:12px;cursor:pointer}
+  .home-skip:hover{color:var(--text-2);text-decoration:underline}
 </style>
 </head>
 <body>
@@ -156,6 +187,7 @@
         <div class="m-act" id="mi-sample">Load sample panel</div>
         <div class="m-sep"></div>
         <div class="m-act" id="mi-clear">Clear scene</div>
+        <div class="m-act" id="mi-home">Welcome Screen</div>
       </div>
     </div>
 
@@ -238,6 +270,21 @@
       <h3 id="modal-title"></h3>
       <div class="modal-msg" id="modal-msg"></div>
       <div class="modal-row" id="modal-row"></div>
+    </div>
+  </div>
+
+  <div id="home" class="home-hidden">
+    <svg id="home-stitch" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+    <div class="home-card">
+      <div class="home-logo">&#10022; &#10022; &#10022;</div>
+      <h1>Leather Studio 3D</h1>
+      <p class="home-sub">Load a finished <code>.lpd</code> pattern and preview the pieces in 3D.</p>
+      <div class="home-actions">
+        <button class="home-btn home-btn-primary" id="home-open"><span class="home-btn-ic">&#128194;</span> Open .lpd&hellip;</button>
+        <button class="home-btn" id="home-sample"><span class="home-btn-ic">&#9638;</span> Load sample panel</button>
+      </div>
+      <div id="home-recents" class="home-recents"></div>
+      <button class="home-skip" id="home-skip">Skip to an empty scene &rarr;</button>
     </div>
   </div>
 
@@ -655,6 +702,7 @@
     const hp = holes.length ? ` · ${holes.length} stitch holes` : '';
     flash(`Loaded ${made} piece${made===1?'':'s'} from ${S.docName}`);
     setInfo(`${S.docName} · ${made} pcs${hp}`);
+    hideHome(); // a pattern is loaded — leave the welcome screen
   }
 
   // Sampled mm polygon for a shape's outline (true beziers for pen paths).
@@ -850,7 +898,7 @@
 
   // ── File open ──
   const filePick = document.getElementById('filePick');
-  document.getElementById('mi-open').onclick = ()=> filePick.click();
+  document.getElementById('mi-open').onclick = ()=> homeOpen();
   filePick.onchange = ()=>{
     const f = filePick.files[0]; if (!f) return;
     const r = new FileReader();
@@ -1026,9 +1074,10 @@
 
   // ── Keyboard ──
   addEventListener('keydown', e=>{
+    if (e.key === 'Escape' && isHomeOpen()){ hideHome(); return; }
     if (e.target.tagName === 'INPUT') return;
     if (e.key === 'r' || e.key === 'R') resetCamera();
-    if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase() === 'o'){ e.preventDefault(); filePick.click(); }
+    if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase() === 'o'){ e.preventDefault(); homeOpen(); }
   });
 
   // ── Drag-and-drop a .lpd onto the canvas ──
@@ -1043,6 +1092,90 @@
 
   // initial menu checkmark state
   setMenuCheck('chk-grid', true);
+
+  // ── Home / welcome screen (LPD-style, french-stitch framed) ──────────────
+  const esc = s => String(s).replace(/[&<>"]/g, c=>({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;' }[c]));
+
+  // The shared french-stitch decorative border (ported from the Pattern Designer).
+  function frenchBorder(w,h,o){
+    const m=o.inset, sp=o.sp, L=o.L, Wd=o.Wd, out=[];
+    const slit=(x,y,ang)=>`<rect x="${(x-L/2).toFixed(1)}" y="${(y-Wd/2).toFixed(1)}" width="${L}" height="${Wd}" rx="${(Wd/2).toFixed(1)}" transform="rotate(${(ang-30).toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})"/>`;
+    const run=(x0,y0,x1,y1,ang)=>{ const dx=x1-x0,dy=y1-y0,len=Math.hypot(dx,dy),n=Math.max(1,Math.round(len/sp));
+      for(let i=0;i<=n;i++){ const t=i/n; out.push(slit(x0+dx*t,y0+dy*t,ang)); } };
+    const x0=m,y0=m,x1=w-m,y1=h-m;
+    run(x0,y0,x1,y0,0); run(x1,y0,x1,y1,90); run(x1,y1,x0,y1,180); run(x0,y1,x0,y0,270);
+    return `<g class="home-thread">${out.join('')}</g>`;
+  }
+  function renderHomeStitch(){
+    const el=document.getElementById('home-stitch'); if(!el) return;
+    const W=window.innerWidth||1200, H=window.innerHeight||800;
+    el.setAttribute('viewBox',`0 0 ${W} ${H}`); el.setAttribute('width',W); el.setAttribute('height',H);
+    el.innerHTML=frenchBorder(W,H,{inset:22,sp:15,L:9,Wd:2.6});
+  }
+  const homeEl = ()=> document.getElementById('home');
+  function isHomeOpen(){ const h=homeEl(); return h && !h.classList.contains('home-hidden'); }
+  function showHome(){ renderHomeStitch(); renderHomeRecents(); homeEl().classList.remove('home-hidden'); }
+  function hideHome(){ const h=homeEl(); if(h) h.classList.add('home-hidden'); }
+
+  // Recents — FileSystemFileHandles in IndexedDB (only where the FS Access API exists;
+  // a plain <input> open has no handle to re-open, so it silently records nothing).
+  const RECENTS_DB='ls3d-recents', RECENTS_STORE='files', RECENTS_MAX=8;
+  const idbReq = req => new Promise((res,rej)=>{ req.onsuccess=()=>res(req.result); req.onerror=()=>rej(req.error); });
+  function recentsDB(){ return new Promise((res,rej)=>{ if(!window.indexedDB) return rej(new Error('no idb'));
+    const r=indexedDB.open(RECENTS_DB,1);
+    r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains(RECENTS_STORE)) r.result.createObjectStore(RECENTS_STORE,{keyPath:'key'}); };
+    r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+  async function addRecent(handle){
+    if(!handle || !window.indexedDB) return;
+    try{ const db=await recentsDB();
+      await idbReq(db.transaction(RECENTS_STORE,'readwrite').objectStore(RECENTS_STORE).put({key:handle.name,name:handle.name,handle,ts:Date.now()}));
+      const st=db.transaction(RECENTS_STORE,'readwrite').objectStore(RECENTS_STORE);
+      const all=await idbReq(st.getAll()); all.sort((a,b)=>b.ts-a.ts);
+      for(const old of all.slice(RECENTS_MAX)) st.delete(old.key);
+    }catch{}
+  }
+  async function getRecents(){ if(!window.indexedDB) return [];
+    try{ const db=await recentsDB(); const all=await idbReq(db.transaction(RECENTS_STORE).objectStore(RECENTS_STORE).getAll());
+      all.sort((a,b)=>b.ts-a.ts); return all.slice(0,RECENTS_MAX); }catch{ return []; } }
+  function relTime(ts){ const s=Math.max(1,Math.round((Date.now()-ts)/1000));
+    if(s<60) return s+'s ago'; const mn=Math.round(s/60); if(mn<60) return mn+'m ago';
+    const hr=Math.round(mn/60); if(hr<24) return hr+'h ago'; return Math.round(hr/24)+'d ago'; }
+  async function renderHomeRecents(){
+    const box=document.getElementById('home-recents'); if(!box) return;
+    const items=await getRecents(); S._homeRecents=items;
+    if(!items.length){ box.innerHTML=''; return; }
+    box.innerHTML='<div class="home-recents-h">Recent files</div>'+items.map((it,i)=>
+      `<button class="home-recent" title="${esc(it.name)}" data-i="${i}"><span class="home-recent-ic">&#9638;</span><span class="home-recent-name">${esc(it.name)}</span><span class="home-recent-time">${relTime(it.ts)}</span></button>`).join('');
+    box.querySelectorAll('.home-recent').forEach(b=> b.onclick=()=> openRecent(items[+b.dataset.i]));
+  }
+  async function openRecent(it){
+    if(!it || !it.handle) return;
+    try{ const h=it.handle;
+      if(h.queryPermission){ let p=await h.queryPermission({mode:'read'}); if(p!=='granted') p=await h.requestPermission({mode:'read'}); if(p!=='granted') return; }
+      const data=JSON.parse(await (await h.getFile()).text());
+      if(!data.shapes) throw new Error('Not a valid .lpd');
+      loadPattern(data, h.name.replace(/\.[^.]+$/,'')); addRecent(h);
+    }catch(err){ if(err && err.name!=='AbortError') alertModal('Could not open recent file: '+((err&&err.message)||err), 'Open Failed'); }
+  }
+  // Open via the FS Access API when present (records recents); else the file input.
+  async function homeOpen(){
+    if(window.showOpenFilePicker){
+      try{ const [h]=await window.showOpenFilePicker({types:[{description:'Leather Pattern Document', accept:{'application/json':['.lpd','.json']}}]});
+        const data=JSON.parse(await (await h.getFile()).text());
+        if(!data.shapes) throw new Error('Not a valid .lpd');
+        loadPattern(data, h.name.replace(/\.[^.]+$/,'')); addRecent(h);
+      }catch(err){ if(err && err.name!=='AbortError') alertModal('Could not open file: '+((err&&err.message)||err), 'Open Failed'); }
+    } else { filePick.click(); }
+  }
+
+  document.getElementById('home-open').onclick   = homeOpen;
+  document.getElementById('home-sample').onclick = ()=> loadSample();   // loadPattern hides home
+  document.getElementById('home-skip').onclick   = hideHome;
+  document.getElementById('mi-home').onclick     = showHome;
+  homeEl().addEventListener('click', e=>{ if(e.target===homeEl()) hideHome(); }); // backdrop dismiss
+  addEventListener('resize', ()=>{ if(isHomeOpen()) renderHomeStitch(); });
+
+  showHome(); // launch on the welcome screen (any file load leaves it via hideHome)
 
   // Start rendering LAST — after every function/const above is defined — and
   // guard it so a GL hiccup (e.g. headless software-GL under the smoke tests)

@@ -5,6 +5,39 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.2 dev — controls, properties panel, theme/prefs persistence, welcome screen (2026-06-07)
+
+UI/UX pass syncing learnings from the Pattern Designer (LPD). Not yet released — these land in
+the next build/version bump (current published release is still v0.0.2, the auto-update build).
+
+- **3ds Max camera scheme** (#16): middle-drag = pan, **Alt+middle-drag = orbit**, wheel =
+  zoom-to-cursor (`zoomToCursor`). A capture-phase `pointerdown` flips `mouseButtons.MIDDLE` to
+  ROTATE while Alt is held (OrbitControls has no modifier combos); middle-click autoscroll
+  suppressed. Left-drag still orbits as a trackpad/2-button fallback.
+- **Typable thickness** (#17): number input beside the slider, two-way synced + clamped 0.5–6mm.
+- **Resizable properties panel** (#18): drag handle on the left edge, width clamped 170–460px and
+  persisted (`ls3d-props-w`); renderer resizes live. Mirrors LPD's `.props-resize`.
+- **Collapsible property sections** (#19): Material/Stitching/Lighting/Scene became LPD-style
+  `.p-sec`/`.p-hd` sections — clickable headers (`role=button`, `aria-expanded`, Enter/Space via
+  `kbActivate`, focus ring), collapse state persisted (`ls3d-sections`).
+- **Theme persistence + system default** (#20): theme restored from `ls3d-theme`, else follows OS
+  `prefers-color-scheme` on first run; chrome class applied pre-scene to limit flash; toggle persists.
+- **Viewer prefs persistence** (#21): leather/stitch colour, roughness, thickness, key/ambient
+  light, and grid/stitch/wireframe toggles persisted (`ls3d-prefs`) and restored into the controls
+  + scene at startup (`savePrefs`/`prefsToUI`). App prefs only, not in any save file.
+- **Welcome screen** (#23): LPD-style `#home` launch overlay framed by the **french-stitch border**
+  (`frenchBorder`/`renderHomeStitch`, ported) — **Open .lpd** + **Load sample panel** actions, a
+  **Recent files** list (FileSystemFileHandles in IndexedDB `ls3d-recents` where the FS Access API
+  exists; degrades to none), plus "Skip to an empty scene". Reopen via **File ▸ Welcome Screen**;
+  Esc/backdrop dismiss; any file load leaves it. Adapted for the viewer (no New File / no autosave
+  restore). Open now routes through the FS-Access picker (so recents record), falling back to the
+  file input. Shared `lsGet`/`lsSet` + `kbActivate` helpers now module-level.
+- Smoke: full **26/26**, build **36/36** throughout.
+- **Open carry-forward:** top-right dark-mode toggle button (#24, todo) and the a11y/keyboard-nav
+  pass (#22, todo).
+
+---
+
 ## v0.0.2 — Pen paths + stitching + desktop wrapper + smoke tests (2026-06-07)
 
 Second pass on the framework, addressing user feedback ("pen shapes don't show, no
