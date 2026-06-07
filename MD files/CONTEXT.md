@@ -37,7 +37,11 @@ tests/
   run-build-smoke.ps1  ← fast STATIC desktop-build checks (version sync, Rust<->JS contract)
 run-smoke.cmd      ← double-click launcher for the app smoke (Q/F prompt)
 desktop/           ← Tauri v2 native-exe wrapper. build.rs copies index.html + vendor/ into
-                     dist/; main.rs = single-instance + take_launch_file + open-lpd. See its README.
+                     dist/; main.rs = single-instance + take_launch_file + open-lpd + updater. See its README.
+.github/workflows/
+  release.yml      ← tauri-action: builds + SIGNS + publishes installer + .sig + latest.json
+                     (Release per v* tag / manual run). Updater pubkey is in tauri.conf; private
+                     key is in ~/.tauri (outside repo) + as repo secrets. See the auto-update note.
 MD files/
   CONTEXT.md       ← this file
   DEVLOG.md        ← versioned changelog (append every session)
@@ -145,7 +149,9 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
    the ui-language skill before any destructive/decision flows.
 3. **Saddle-stitch realism**: alternate front/back thread passes + slanted slits (current thread is
    a simple cylinder between holes; holes are surface discs, not boolean-punched).
-4. **Desktop follow-ups**: auto-update (needs key/repo/pipeline) and native Open/Save dialogs.
+4. **Desktop follow-ups**: ✅ auto-update DONE (updater plugin + signing key + `release.yml`;
+   `checkForUpdates()` in index.html; see DEVLOG). Remaining: native Open/Save dialogs (optional —
+   the HTML file input works in WebView2); a paid Authenticode cert to silence SmartScreen.
 5. **Thickness**: `rebuild()` re-runs the loader on change; fine, but a partial update would be
    cheaper if perf matters on big patterns.
 

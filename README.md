@@ -17,6 +17,19 @@ modern browser — no server needed.
 
 ---
 
+## ⬇️ Install (Windows desktop)
+
+Grab the latest **`_x64-setup.exe`** from the
+[releases page](https://github.com/soulagent/leather-studio-3d/releases/latest) and run it. Once
+installed, the app keeps itself up to date — **Help ▸ Check for Updates**, and a silent check on
+launch (signed updates pulled from this repo's GitHub Releases).
+
+> **Windows SmartScreen warning?** The installer is integrity-signed for the auto-updater but is
+> *not* code-signed with a paid Authenticode certificate (same as the Leather Pattern Designer), so
+> Windows may show a blue **"Windows protected your PC"** dialog. Click **More info → Run anyway**.
+
+The browser route above always works too and needs no install.
+
 ## ✨ What it does (Phase 1 — viewer MVP)
 
 - Renders each pattern piece as a **flat leather panel** in 3D at true mm scale.

@@ -41,6 +41,29 @@ stitch holes/thread") plus a desktop exe and a standalone test harness.
 - Also: render loop now kicks off **last** (after all definitions) inside a try, so a GL hiccup
   can't leave the kernel undefined. Version bumped to **v0.0.2** across index/tauri.conf/Cargo/ledger.
 
+### Auto-update + updater signing (added in the v0.0.2 cycle)
+Brought the desktop install/update experience to parity with the Pattern Designer:
+- **Dedicated signing key** generated (`cargo tauri signer generate`) → `~/.tauri/leather-studio-3d.key`
+  (+ `.pub` + `.password.txt`), **outside the repo, never committed**. Public key embedded in
+  `tauri.conf.json plugins.updater.pubkey`; private key + password set as the repo secrets
+  `TAURI_SIGNING_PRIVATE_KEY` / `_PASSWORD`.
+- **tauri.conf**: `createUpdaterArtifacts: true` + `plugins.updater` endpoint
+  `…/leather-studio-3d/releases/latest/download/latest.json`. **Cargo**: `tauri-plugin-updater` +
+  `tauri-plugin-process` + `serde_json`. **main.rs** registers both plugins; **capabilities** add
+  `updater:default` + `process:default`.
+- **index.html**: Help menu → `checkForUpdates()` (check → themed `confirmModal` → `downloadAndInstall`
+  with % flash → `process.relaunch()`), plus minimal `confirmModal`/`alertModal` (promise-based,
+  themed; ticks the dialogs backlog item) + `isDesktop()`. Update item hidden in browser; silent
+  background check 1.5s after desktop launch.
+- **`.github/workflows/release.yml`** (tauri-action): builds, **signs**, and publishes the NSIS
+  installer + `.sig` + `latest.json` on a GitHub Release (`workflow_dispatch` or `v*` tag). Seeds
+  **index.html AND vendor/** before the Tauri CLI validates `frontendDist`.
+- Verified a **local signed build** produces the `.exe.sig`; build smoke +21 updater asserts
+  (**36/36**). Published the first signed release via the workflow (tag `v0.0.2`).
+- **Same caveat as the Pattern Designer:** this is updater *integrity*-signing (minisign), **not**
+  a paid Authenticode certificate — so Windows SmartScreen still warns on first install. The
+  in-app auto-update path is fully signed/verified.
+
 ---
 
 ## v0.0.1 — Project framework / Phase-1 skeleton (2026-06-07)

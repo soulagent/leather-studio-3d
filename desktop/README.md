@@ -17,13 +17,28 @@ It deliberately does **not** register itself as the default `.lpd` handler — t
 Leather Pattern Designer owns that association (it's the editor); this is a viewer
 you reach via "Open with" or File ▸ Open.
 
+## Auto-update (done)
+
+Installed copies update themselves: **Help ▸ Check for Updates** + a silent check on launch
+(`tauri-plugin-updater` / `-process`). The updater hits this repo's `latest.json`
+(`releases/latest/download/latest.json`) and installs newer **signed** builds.
+
+- **Signing key** is dedicated to this app, kept in `~/.tauri/leather-studio-3d.key` (+ `.pub` +
+  `.password.txt`) — **outside the repo, never committed**. Public key is in
+  `tauri.conf.json plugins.updater.pubkey`. **Do not lose it** — without it, installed apps can't
+  verify future updates.
+- The private key + password are GitHub repo secrets `TAURI_SIGNING_PRIVATE_KEY` /
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (set via `gh secret set`).
+- **Releasing:** bump the version in `tauri.conf.json` + `Cargo.toml` + `index.html`
+  (`APP_VERSION`), push, then `gh workflow run release.yml` (or push a `v*` tag).
+  `.github/workflows/release.yml` builds, signs, and publishes the installer + `.sig` + `latest.json`.
+- This is updater **integrity-signing** (minisign), **not** a paid Authenticode cert — SmartScreen
+  still warns on first install, same as the Pattern Designer.
+
 ## Not included yet (follow-ups)
 
-- **Auto-update** (updater/process plugins). That needs its own signing key, a
-  GitHub repo, secrets, and a release pipeline — see the Pattern Designer's
-  auto-update setup to replicate when wanted.
-- Native Open/Save dialogs (the in-page `File ▸ Open` file input already works in
-  WebView2, so they're optional).
+- Native Open/Save dialogs (the in-page `File ▸ Open` file input already works in WebView2).
+- A paid Authenticode certificate to silence SmartScreen.
 
 ## Prerequisites
 
