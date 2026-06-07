@@ -5,10 +5,10 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
-## v0.0.2 dev — controls, properties panel, theme/prefs persistence, welcome screen (2026-06-07)
+## v0.0.3 — controls, properties panel, theme/prefs persistence, welcome screen (2026-06-07)
 
-UI/UX pass syncing learnings from the Pattern Designer (LPD). Not yet released — these land in
-the next build/version bump (current published release is still v0.0.2, the auto-update build).
+UI/UX pass syncing learnings from the Pattern Designer (LPD). **Released** (build russet-heron-V3)
+via the CI workflow — installed v0.0.2 copies auto-update to this.
 
 - **3ds Max camera scheme** (#16): middle-drag = pan, **Alt+middle-drag = orbit**, wheel =
   zoom-to-cursor (`zoomToCursor`). A capture-phase `pointerdown` flips `mouseButtons.MIDDLE` to
