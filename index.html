@@ -282,6 +282,24 @@
   S.light = (lsGet('ls3d-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')) === 'light';
   document.body.classList.toggle('light', S.light);
 
+  // Restore saved viewer preferences into S (before scene/lights are built, so
+  // they pick up the values). Colours are stored as hex strings.
+  const PREFS_KEY = 'ls3d-prefs';
+  (function restorePrefs(){
+    let p; try { p = JSON.parse(lsGet(PREFS_KEY)) || {}; } catch { p = {}; }
+    for (const k of ['leather','stitch','roughness','thickness','keyLight','ambient','showGrid','showStitches','wireframe'])
+      if (p[k] != null) S[k] = p[k];
+  })();
+  function savePrefs(){
+    lsSet(PREFS_KEY, JSON.stringify({
+      leather:'#'+new THREE.Color(S.leather).getHexString(),
+      stitch:'#'+new THREE.Color(S.stitch).getHexString(),
+      roughness:S.roughness, thickness:S.thickness,
+      keyLight:S.keyLight, ambient:S.ambient,
+      showGrid:S.showGrid, showStitches:S.showStitches, wireframe:S.wireframe,
+    }));
+  }
+
   // ── three.js scene ──
   const stage = document.getElementById('stage');
   const scene = new THREE.Scene();
@@ -858,9 +876,9 @@
   document.getElementById('mi-sample').onclick = loadSample;
   document.getElementById('mi-clear').onclick  = clearScene;
   document.getElementById('mi-reset').onclick  = resetCamera;
-  document.getElementById('mi-grid').onclick   = e=>{ e.stopPropagation(); S.showGrid=!S.showGrid; applyGrid(); };
-  document.getElementById('mi-wire').onclick   = e=>{ e.stopPropagation(); S.wireframe=!S.wireframe; setMenuCheck('chk-wire',S.wireframe); document.getElementById('ckWire').checked=S.wireframe; applyMaterials(); };
-  document.getElementById('mi-stitch').onclick = e=>{ e.stopPropagation(); S.showStitches=!S.showStitches; applyStitch(); };
+  document.getElementById('mi-grid').onclick   = e=>{ e.stopPropagation(); S.showGrid=!S.showGrid; applyGrid(); savePrefs(); };
+  document.getElementById('mi-wire').onclick   = e=>{ e.stopPropagation(); S.wireframe=!S.wireframe; setMenuCheck('chk-wire',S.wireframe); document.getElementById('ckWire').checked=S.wireframe; applyMaterials(); savePrefs(); };
+  document.getElementById('mi-stitch').onclick = e=>{ e.stopPropagation(); S.showStitches=!S.showStitches; applyStitch(); savePrefs(); };
   document.getElementById('mi-theme').onclick  = e=>{ e.stopPropagation(); S.light=!S.light; applyTheme(); lsSet('ls3d-theme', S.light?'light':'dark'); };
   document.getElementById('mi-update').onclick = ()=> checkForUpdates(true);
   document.getElementById('mi-about').onclick  = ()=> alertModal('Leather Studio 3D '+APP_VERSION+'\n\n3D preview companion to the Leather Pattern Designer.\nLoads a .lpd and previews the pieces in 3D.', 'About');
@@ -909,7 +927,7 @@
   const $ = id => document.getElementById(id);
   function bindColor(picker, hex, set){
     const p=$(picker), h=$(hex);
-    const sync=v=>{ p.value=v; h.value=v; set(v); };
+    const sync=v=>{ p.value=v; h.value=v; set(v); savePrefs(); };
     p.oninput=()=>sync(p.value);
     h.onchange=()=>{ if(/^#[0-9a-fA-F]{6}$/.test(h.value)) sync(h.value); };
   }
@@ -918,7 +936,7 @@
 
   function bindRange(id, valId, set, fmt){
     const r=$(id), v=$(valId);
-    r.oninput=()=>{ const n=parseFloat(r.value); v.textContent=fmt?fmt(n):n; set(n); };
+    r.oninput=()=>{ const n=parseFloat(r.value); v.textContent=fmt?fmt(n):n; set(n); savePrefs(); };
   }
   bindRange('matRough','matRoughV', n=>{ S.roughness=n; applyMaterials(); }, n=>n.toFixed(2));
   bindRange('lightKey','lightKeyV', n=>{ S.keyLight=n; applyLighting(); }, n=>n.toFixed(2));
@@ -933,16 +951,30 @@
       v=Math.min(mx, Math.max(mn, v));
       S.thickness=v; r.value=v;
       if(echoToNum) nu.value=+v.toFixed(2);
-      rebuild();
+      rebuild(); savePrefs();
     };
     r.oninput  = ()=> apply(parseFloat(r.value), true);          // drag → echo to the number
     nu.oninput = ()=> apply(parseFloat(nu.value), false);        // type → don't fight the caret
     nu.onchange= ()=>{ let v=parseFloat(nu.value); if(isNaN(v)) v=S.thickness; nu.value=+Math.min(mx,Math.max(mn,v)).toFixed(2); apply(parseFloat(nu.value), false); };
   })();
 
-  $('ckGrid').onchange = ()=>{ S.showGrid=$('ckGrid').checked; applyGrid(); };
-  $('ckWire').onchange = ()=>{ S.wireframe=$('ckWire').checked; setMenuCheck('chk-wire',S.wireframe); applyMaterials(); };
-  $('ckStitch').onchange = ()=>{ S.showStitches=$('ckStitch').checked; applyStitch(); };
+  $('ckGrid').onchange = ()=>{ S.showGrid=$('ckGrid').checked; applyGrid(); savePrefs(); };
+  $('ckWire').onchange = ()=>{ S.wireframe=$('ckWire').checked; setMenuCheck('chk-wire',S.wireframe); applyMaterials(); savePrefs(); };
+  $('ckStitch').onchange = ()=>{ S.showStitches=$('ckStitch').checked; applyStitch(); savePrefs(); };
+
+  // Push restored S values into the controls + scene at startup (idempotent —
+  // with no saved prefs these equal the HTML defaults).
+  (function prefsToUI(){
+    const hex = c => '#'+new THREE.Color(c).getHexString();
+    $('matColor').value = $('matColorHex').value = hex(S.leather);
+    $('stitchColor').value = $('stitchColorHex').value = hex(S.stitch);
+    $('matRough').value = S.roughness; $('matRoughV').textContent = (+S.roughness).toFixed(2);
+    $('matThick').value = S.thickness; $('matThickN').value = +(+S.thickness).toFixed(2);
+    $('lightKey').value = S.keyLight; $('lightKeyV').textContent = (+S.keyLight).toFixed(2);
+    $('lightAmb').value = S.ambient;  $('lightAmbV').textContent = (+S.ambient).toFixed(2);
+    $('ckGrid').checked = S.showGrid; $('ckWire').checked = S.wireframe; $('ckStitch').checked = S.showStitches;
+    applyGrid(); applyLighting(); applyStitch();
+  })();
 
   // ── Resizable properties panel (drag handle + persisted width; mirrors LPD) ──
   (function propsResize(){
