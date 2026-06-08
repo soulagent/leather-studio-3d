@@ -110,6 +110,13 @@
   .asm-prob.length,.asm-prob.dangling{border-left-color:#e74c3c}
   .asm-prob.incomplete{border-left-color:#f59e0b}
   .asm-prob-ic{flex:0 0 auto;opacity:.85}
+  /* segmented Flat/Stacked toggle */
+  .seg{display:inline-flex;flex:1;border:1px solid var(--border);border-radius:5px;overflow:hidden}
+  .seg-btn{flex:1;background:var(--raised);color:var(--text-2);border:0;padding:5px 8px;font:inherit;font-size:11px;cursor:pointer}
+  .seg-btn+.seg-btn{border-left:1px solid var(--border)}
+  .seg-btn:hover{color:var(--text)}
+  .seg-btn.on{background:var(--accent-bright);color:#fff}
+  .seg-btn:focus-visible{outline:2px solid var(--accent-bright);outline-offset:-2px}
   .p-field{display:flex;align-items:center;gap:8px;margin-bottom:6px}
   .p-lbl{flex:0 0 78px;font-size:11px;color:var(--text-2)}
   .p-inp,.p-sel{
@@ -283,9 +290,16 @@
       <div class="p-sec" id="sec-assembly" style="display:none">
         <div class="p-hd" id="hd-assembly"><span>Assembly</span><span class="p-tog">&#9662;</span></div>
         <div class="p-sec-body" id="body-assembly">
+          <div class="p-field" id="asm-layout-row" style="display:none">
+            <span class="p-lbl">Layout</span>
+            <div class="seg" role="group" aria-label="Layout mode">
+              <button type="button" id="asm-flat" class="seg-btn">Flat</button>
+              <button type="button" id="asm-stacked" class="seg-btn">Stacked</button>
+            </div>
+          </div>
           <div class="p-note" id="asm-summary" style="margin-bottom:6px"></div>
           <div id="asm-problems"></div>
-          <div class="p-note" style="opacity:.6;margin-top:6px">Seam connectors + fold creases from the pattern's <code>assembly</code> data. Flat preview — folding lands in a later phase.</div>
+          <div class="p-note" style="opacity:.6;margin-top:6px"><b>Stacked</b> snaps seam-joined pieces together + stacks them by thickness/layer (no pre-overlapping needed). Folding into the assembled product lands in a later phase.</div>
         </div>
       </div>
     </div>
@@ -352,7 +366,10 @@
     seamMeshes:[],             // seam connector + fold-crease overlays (disposed in clearScene)
     problems:[],               // derived Tier-1 issues (length-mismatch / dangling / incomplete)
     showSeams:true,            // seam/fold overlay visibility
-    assemblyMode:'flat',       // 'flat' (Phase 2a) — folding lands in later phases
+    assemblyMode:'flat',       // 'flat' = raw 2D layout · 'stacked' = snap+stack from seams (S1)
+    pieceGroups:new Map(),     // shape id -> {group, shape, thickness} (each piece is its own group)
+    pieceXf:new Map(),         // shape id -> {theta,tx,ty,dy} in-plane pose for stacked mode
+    threadMeshes:[],           // per-piece thread meshes (for live colour change)
   };
 
   // Stitch defaults from the loaded .lpd's settings (per-shape values override these).
@@ -373,7 +390,7 @@
   const PREFS_KEY = 'ls3d-prefs';
   (function restorePrefs(){
     let p; try { p = JSON.parse(lsGet(PREFS_KEY)) || {}; } catch { p = {}; }
-    for (const k of ['leather','stitch','roughness','thickness','keyLight','ambient','showGrid','showStitches','wireframe','showSeams'])
+    for (const k of ['leather','stitch','roughness','thickness','keyLight','ambient','showGrid','showStitches','wireframe','showSeams','assemblyMode'])
       if (p[k] != null) S[k] = p[k];
   })();
   function savePrefs(){
@@ -383,6 +400,7 @@
       roughness:S.roughness, thickness:S.thickness,
       keyLight:S.keyLight, ambient:S.ambient,
       showGrid:S.showGrid, showStitches:S.showStitches, wireframe:S.wireframe, showSeams:S.showSeams,
+      assemblyMode:S.assemblyMode,
     }));
   }
 
@@ -757,10 +775,12 @@
     LP.defMargin  = data?.settings?.defMargin  ?? 3;
     LP.defSpacing = data?.settings?.defSpacing ?? 3.38;
     const shapes = Array.isArray(data?.shapes) ? data.shapes : [];
-    let made = 0;
-    const holes = [], threads = [];
-    for (const sh of shapes){
-      if (sh.hidden) continue;
+    let made = 0, holeCt = 0;
+    // Each piece is built into its OWN group (so it can be rigidly posed for stacking/
+    // folding later). The group origin is world origin; geometry is baked at raw 2D coords.
+    shapes.forEach((sh, idx) => {
+      if (sh.hidden) return;
+      const pg = new THREE.Group();
       const poly = outlinePolygon(sh);
       if (poly && poly.length >= 3){
         const geo = new THREE.ExtrudeGeometry(shapeFromPolygon(poly), { depth:pieceThickness(sh), bevelEnabled:false });
@@ -768,22 +788,26 @@
         geo.computeVertexNormals();
         const mesh = new THREE.Mesh(geo, leatherMaterial());
         mesh.castShadow = true; mesh.receiveShadow = true;
-        patternGroup.add(mesh);
-        S.panelMeshes.push(mesh);
+        pg.add(mesh); S.panelMeshes.push(mesh);
         made++;
       }
+      const holes = [], threads = [];
       collectStitches(sh, holes, threads);
-    }
-    if (holes.length)   addHoleMesh(holes);
-    if (threads.length) addThreadMesh(threads);
+      if (holes.length){ addHoleMesh(holes, pg); holeCt += holes.length; }
+      if (threads.length) addThreadMesh(threads, pg);
+      patternGroup.add(pg);
+      S.pieceGroups.set(sh.id != null ? sh.id : '_'+idx, { group:pg, shape:sh, thickness:pieceThickness(sh) });
+    });
     applyStitchVisibility();
     buildAssembly(data);            // resolve seams/folds + Tier-1 problems (v15; no-op pre-v15)
-    buildSeamOverlays();            // Phase-2a flat connectors + fold creases
+    computePieceTransforms();       // S1: pairwise edge-snap + thickness/layer stacking poses
+    applyPieceTransforms();         // pose each piece group for the current assemblyMode
+    buildSeamOverlays();            // seam connectors + fold creases (transform-aware)
     recentrePattern();
     if (!keepCam) resetCamera();
     renderAssemblyPanel();
     document.getElementById('empty-hint').style.display = made ? 'none' : '';
-    const hp = holes.length ? ` · ${holes.length} stitch holes` : '';
+    const hp = holeCt ? ` · ${holeCt} stitch holes` : '';
     const seamCt = S.assembly ? S.assembly.seams.length : 0;
     const sp = seamCt ? ` · ${seamCt} seam${seamCt===1?'':'s'}` : '';
     flash(`Loaded ${made} piece${made===1?'':'s'} from ${S.docName}`);
@@ -838,7 +862,7 @@
   }
 
   const HOLE_R=0.55, HOLE_H=0.7, THREAD_R=0.42;
-  function addHoleMesh(holes){
+  function addHoleMesh(holes, group){
     const geo=new THREE.CylinderGeometry(HOLE_R,HOLE_R,HOLE_H,10);
     const mat=new THREE.MeshStandardMaterial({color:0x140d07, roughness:0.95});
     const m=new THREE.InstancedMesh(geo,mat,holes.length);
@@ -849,9 +873,9 @@
       m.setMatrixAt(i,o.matrix);
     }
     m.receiveShadow=true;
-    patternGroup.add(m); S.stitchMeshes.push(m);
+    (group||patternGroup).add(m); S.stitchMeshes.push(m);
   }
-  function addThreadMesh(segs){
+  function addThreadMesh(segs, group){
     const geo=new THREE.CylinderGeometry(THREAD_R,THREAD_R,1,8); // unit-height; scaled per instance
     const mat=new THREE.MeshStandardMaterial({color:S.stitch, roughness:0.55});
     const m=new THREE.InstancedMesh(geo,mat,segs.length);
@@ -866,10 +890,10 @@
       m.setMatrixAt(i,o.matrix);
     }
     m.castShadow=true;
-    patternGroup.add(m); S.stitchMeshes.push(m); S.threadMesh=m;
+    (group||patternGroup).add(m); S.stitchMeshes.push(m); S.threadMeshes.push(m);
   }
   function applyStitchVisibility(){ for (const m of S.stitchMeshes) m.visible = S.showStitches; }
-  function applyStitchColor(){ if (S.threadMesh) S.threadMesh.material.color.set(S.stitch); }
+  function applyStitchColor(){ for (const m of S.threadMeshes) m.material.color.set(S.stitch); }
 
   // ── Assembly model: read data.assembly, resolve seam edges, build the graph ──
   // Read-only mirror of the editor's validateSeams: dangling refs are collected
@@ -920,35 +944,96 @@
     S.problems = problems;
   }
 
-  // Phase 2a — seam-aware FLAT overlays: a coloured connector ribbon between each
-  // seam's paired member edges (red if it has a Tier-1 problem) + dashed fold creases.
+  // ── Piece posing: in-plane rigid transforms for stacked mode (S1) ──────────
+  // A pose is a 2D rigid transform p' = R(theta)·p + (tx,ty) in the shape's mm
+  // plane, plus a stack height dy. The flat layout = identity for every piece.
+  const IDENT_XF = { theta:0, tx:0, ty:0, dy:0 };
+  function applyXf2D(xf, p){ const c=Math.cos(xf.theta), s=Math.sin(xf.theta); return { x:c*p.x - s*p.y + xf.tx, y:s*p.x + c*p.y + xf.ty }; }
+  // Rigid transform that maps `movPoly`'s edge endpoints onto `refPoly`'s, with the
+  // reference's own pose (refXf) already applied. Endpoints match start↔start / end↔end.
+  function align2D(refPoly, movPoly, refXf){
+    const RA0=applyXf2D(refXf, refPoly[0]), RA1=applyXf2D(refXf, refPoly[refPoly.length-1]);
+    const MB0=movPoly[0], MB1=movPoly[movPoly.length-1];
+    const theta=Math.atan2(RA1.y-RA0.y, RA1.x-RA0.x) - Math.atan2(MB1.y-MB0.y, MB1.x-MB0.x);
+    const c=Math.cos(theta), s=Math.sin(theta);
+    return { theta, tx: RA0.x-(c*MB0.x - s*MB0.y), ty: RA0.y-(s*MB0.x + c*MB0.y), dy:0 };
+  }
+  // S1 — pairwise edge-snap + thickness/layer stacking. For each 2-piece seam, the
+  // lower-layer piece stays put and the higher-layer one snaps its mated edge onto it,
+  // offset up by the lower piece's thickness so it stacks on top (lining under leather,
+  // etc.). Multi-seam graphs are handled properly in S2; here later seams just override.
+  function computePieceTransforms(){
+    S.pieceXf = new Map();
+    for (const id of S.pieceGroups.keys()) S.pieceXf.set(id, { ...IDENT_XF });
+    if (!S.assembly) return;
+    const shapes = Array.isArray(S.lastData?.shapes) ? S.lastData.shapes : [];
+    const rank = new Map(); shapes.forEach((s,i)=>{ if(s.id!=null) rank.set(s.id, i); });
+    for (const seam of S.assembly.seams){
+      if (seam.resolved.length !== 2) continue;
+      let [refM, movM] = seam.resolved;
+      if (refM.shape === movM.shape) continue;                 // self-seam — nothing to stack
+      if ((rank.get(movM.shape)??0) < (rank.get(refM.shape)??0)){ [refM, movM] = [movM, refM]; }
+      const refXf = S.pieceXf.get(refM.shape) || { ...IDENT_XF };
+      const xf = align2D(refM.poly, movM.poly, refXf);
+      xf.dy = (refXf.dy||0) + (S.pieceGroups.get(refM.shape)?.thickness || S.thickness);
+      S.pieceXf.set(movM.shape, xf);
+    }
+  }
+  // Pose each piece group for the active mode (stacked = computed pose, flat = identity).
+  function applyPieceTransforms(){
+    const stacked = S.assemblyMode === 'stacked';
+    for (const [id, w] of S.pieceGroups){
+      const xf = stacked ? (S.pieceXf.get(id) || IDENT_XF) : IDENT_XF;
+      w.group.rotation.set(0, xf.theta, 0);
+      w.group.position.set(xf.tx, xf.dy||0, -xf.ty);
+    }
+  }
+  function pieceXfFor(id){ return (S.assemblyMode==='stacked' && S.pieceXf.get(id)) || IDENT_XF; }
+  // Switch Flat <-> Stacked: re-pose pieces, rebuild overlays at the new positions, recentre.
+  function setAssemblyMode(mode){
+    if (mode!=='flat' && mode!=='stacked') return;
+    S.assemblyMode = mode;
+    applyPieceTransforms();
+    refreshSeamOverlays();
+    recentrePattern();
+    renderAssemblyPanel();
+    savePrefs();
+  }
+  function refreshSeamOverlays(){
+    for (const m of S.seamMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
+    S.seamMeshes = [];
+    buildSeamOverlays();
+  }
+
+  // Seam-aware overlays: a coloured connector ribbon between each seam's paired member
+  // edges (red on a Tier-1 problem) + dashed fold creases. Edge points are mapped through
+  // each member-piece's current pose, so connectors collapse onto the join in stacked mode.
   const SEAM_RIBBON_K = 8;
   function buildSeamOverlays(){
     if (!S.assembly) return;
-    const shapes = Array.isArray(S.lastData?.shapes) ? S.lastData.shapes : [];
-    let maxTh = S.thickness; for (const sh of shapes) maxTh = Math.max(maxTh, pieceThickness(sh));
-    const yLevel = maxTh + 0.6, toW = p => new THREE.Vector3(p.x, yLevel, -p.y);
+    const memberToW = m => { const xf=pieceXfFor(m.shape), top=(xf.dy||0)+pieceThickness(m.sh)+0.4;
+      return p => { const q=applyXf2D(xf, p); return new THREE.Vector3(q.x, top, -q.y); }; };
     const badSeams = new Set(S.problems.filter(p => p.kind==='length' || p.kind==='dangling').map(p => p.seam));
     // Seam connectors
     for (const seam of S.assembly.seams){
       if (seam.resolved.length < 2) continue;
       const col = badSeams.has(seam.id) ? new THREE.Color(0xe74c3c) : seamColor3D(seam.id);
-      const ref = resampleByArcLength(seam.resolved[0].poly, SEAM_RIBBON_K);
+      const refM = seam.resolved[0], refW = memberToW(refM), ref = resampleByArcLength(refM.poly, SEAM_RIBBON_K);
       const verts = [];
       for (let k=1; k<seam.resolved.length; k++){
-        const other = resampleByArcLength(seam.resolved[k].poly, SEAM_RIBBON_K);
-        for (let i=0;i<ref.length;i++){ const a=toW(ref[i]), b=toW(other[i]); verts.push(a.x,a.y,a.z, b.x,b.y,b.z); }
+        const oM = seam.resolved[k], oW = memberToW(oM), other = resampleByArcLength(oM.poly, SEAM_RIBBON_K);
+        for (let i=0;i<ref.length;i++){ const a=refW(ref[i]), b=oW(other[i]); verts.push(a.x,a.y,a.z, b.x,b.y,b.z); }
       }
       if (!verts.length) continue;
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
       const m = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color:col }));
       m.visible = S.showSeams; patternGroup.add(m); S.seamMeshes.push(m);
     }
-    // Fold creases (dashed violet on the owning piece's top face)
+    // Fold creases (dashed violet on the owning piece's top face, posed with its piece)
     for (const f of S.assembly.folds){
       if (!f.renderable) continue;
-      const th = pieceThickness(f.sh) + 0.2;
-      const a=new THREE.Vector3(f.a.x, th, -f.a.y), b=new THREE.Vector3(f.b.x, th, -f.b.y);
+      const toW = memberToW({ shape:f.shape, sh:f.sh });
+      const a=toW(f.a), b=toW(f.b);
       const g = new THREE.BufferGeometry().setFromPoints([a,b]);
       const m = new THREE.Line(g, new THREE.LineDashedMaterial({ color:0xa78bfa, dashSize:2.5, gapSize:1.6 }));
       m.computeLineDistances(); m.visible = S.showSeams; patternGroup.add(m); S.seamMeshes.push(m);
@@ -966,6 +1051,15 @@
     if(sum) sum.textContent = A
       ? `${seamCt} seam${seamCt===1?'':'s'} · ${foldCt} fold${foldCt===1?'':'s'} · ${A.graph.nodes.length} joined piece${A.graph.nodes.length===1?'':'s'}`
       : 'No assembly data in this file.';
+    // Layout toggle: only when there's something to stack (>=1 graph arc).
+    const lrow=document.getElementById('asm-layout-row');
+    if(lrow){
+      const canStack = !!(A && A.graph.arcs.length);
+      lrow.style.display = canStack ? '' : 'none';
+      const fb=document.getElementById('asm-flat'), sb=document.getElementById('asm-stacked');
+      if(fb&&sb){ fb.classList.toggle('on', S.assemblyMode==='flat'); sb.classList.toggle('on', S.assemblyMode==='stacked');
+        fb.setAttribute('aria-pressed', S.assemblyMode==='flat'); sb.setAttribute('aria-pressed', S.assemblyMode==='stacked'); }
+    }
     const list=document.getElementById('asm-problems');
     if(list){
       list.innerHTML = ps.length
@@ -987,11 +1081,13 @@
   }
 
   function clearScene(){
-    for (const m of S.panelMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
-    for (const m of S.stitchMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
+    for (const m of S.panelMeshes){ m.geometry.dispose(); m.material.dispose(); }
+    for (const m of S.stitchMeshes){ m.geometry.dispose(); m.material.dispose(); }
     for (const m of S.seamMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
-    S.panelMeshes = []; S.stitchMeshes = []; S.threadMesh = null;
+    for (const w of S.pieceGroups.values()) patternGroup.remove(w.group);
+    S.panelMeshes = []; S.stitchMeshes = []; S.threadMeshes = [];
     S.seamMeshes = []; S.assembly = null; S.problems = [];
+    S.pieceGroups = new Map(); S.pieceXf = new Map();
     patternGroup.position.set(0,0,0);
     S.docName = null; S.lastData = null; S.lastName = null;
     document.getElementById('empty-hint').style.display = '';
@@ -1263,6 +1359,8 @@
   $('ckWire').onchange = ()=>{ S.wireframe=$('ckWire').checked; setMenuCheck('chk-wire',S.wireframe); applyMaterials(); savePrefs(); };
   $('ckStitch').onchange = ()=>{ S.showStitches=$('ckStitch').checked; applyStitch(); savePrefs(); };
   $('ckSeams').onchange = ()=>{ S.showSeams=$('ckSeams').checked; applySeam(); savePrefs(); };
+  $('asm-flat').onclick = ()=> setAssemblyMode('flat');
+  $('asm-stacked').onclick = ()=> setAssemblyMode('stacked');
 
   // Push restored S values into the controls + scene at startup (idempotent —
   // with no saved prefs these equal the HTML defaults).

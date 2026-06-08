@@ -137,9 +137,13 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
   incomplete). `buildSeamOverlays()` draws Phase-2a **flat** connectors (coloured ribbons between
   paired edges, red on problem) + dashed **fold** creases; per-piece `thickness` now drives each
   panel's extrude depth + its stitch height. State: `S.assembly`/`S.seamMeshes`/`S.problems`/
-  `S.showSeams`. Still **flat only** — actual folding (hinge-tree, assemble animation, Tier-2 gap
-  check) is the S1–S3 stream. Folding remains 2D→3D-ill-posed in general; tractable path = hinge
-  tree for tree-structured goods, parametric catalogue for closed loops. Consume `assembly`
+  `S.showSeams`. **S1 adds a STACKED layout** (`S.assemblyMode`, `S.pieceGroups`, `S.pieceXf`): each
+  piece is its own `THREE.Group`; `align2D`/`computePieceTransforms` snap a 2-piece seam's mated
+  edges together and stack the higher-layer piece on top by thickness (layer order = `shapes[]`
+  order); a Flat↔Stacked toggle (`setAssemblyMode`) re-poses pieces + rebuilds overlays. Still
+  **no folding** — hinge/fold (dihedral bend, assemble animation, Tier-2 gap check) + whole-graph
+  positioning from a root are S2–S3. Folding remains 2D→3D-ill-posed in general; tractable path =
+  hinge tree for tree-structured goods, parametric catalogue for closed loops. Consume `assembly`
   **read-only**; absent `assembly` (any pre-v15 file) → flat viewer unchanged.
 
   **Data model spec.** `.lpd` **schema

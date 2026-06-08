@@ -202,6 +202,50 @@ window.__SMOKE__ = function (spec) {
       assert('clearScene resets assembly state', S.assembly === null && S.seamMeshes.length === 0);
     },
 
+    // --- S1: pairwise edge-snap + thickness/layer stacking ---
+    stacking() {
+      // two rects drawn far apart, joined along equal-length edges (rect1 right <-> rect2 left)
+      loadPattern({
+        shapes: [
+          { id: 1, type: 'rect', x: 0,   y: 0, w: 100, h: 80, thickness: 3 },
+          { id: 2, type: 'rect', x: 400, y: 0, w: 100, h: 80, thickness: 2 },
+        ],
+        assembly: { version: 1,
+          seams: [{ id: 1, name: 'spine', type: 'stitch', members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 3 }] }],
+          folds: [],
+        },
+      }, 'stack');
+
+      assert('two piece groups built', S.pieceGroups.size === 2);
+      // flat: every piece group at identity (raw 2D layout)
+      setAssemblyMode('flat');
+      const g2 = S.pieceGroups.get(2).group;
+      assert('flat: moving piece at identity', g2.position.length() < 1e-9 && Math.abs(g2.rotation.y) < 1e-9);
+
+      // stacked: piece 2 (higher layer index) snaps onto piece 1, lifted by piece1 thickness
+      setAssemblyMode('stacked');
+      const xf2 = S.pieceXf.get(2);
+      assert('stacked: moving piece got a non-identity pose',
+        !!xf2 && (Math.abs(xf2.tx) > 1e-6 || Math.abs(xf2.ty) > 1e-6 || Math.abs(xf2.theta) > 1e-6));
+      assertNear('stacked: lifted by reference thickness (3mm)', xf2.dy, 3, 1e-6);
+      assertNear('stacked: group Y = stack height', S.pieceGroups.get(2).group.position.y, 3, 1e-6);
+      assert('stacked: reference piece (lower layer) unmoved', S.pieceXf.get(1).dy === 0);
+      // mated edge endpoints coincide after the transform
+      const refEdge = sampleEdge(S.lastData.shapes[0], 1);   // rect1 edge 1: (100,0)->(100,80)
+      const movEdge = sampleEdge(S.lastData.shapes[1], 3);   // rect2 edge 3
+      const m0 = applyXf2D(xf2, movEdge[0]), m1 = applyXf2D(xf2, movEdge[movEdge.length - 1]);
+      const d0 = Math.hypot(m0.x - refEdge[0].x, m0.y - refEdge[0].y);
+      const d1 = Math.hypot(m1.x - refEdge[refEdge.length - 1].x, m1.y - refEdge[refEdge.length - 1].y);
+      assert('stacked: mated edge endpoints coincide', d0 < 1e-6 && d1 < 1e-6, `d0=${d0.toFixed(4)} d1=${d1.toFixed(4)}`);
+
+      // toggle back to flat → identity restored
+      setAssemblyMode('flat');
+      assert('flat again: identity restored', S.pieceGroups.get(2).group.position.length() < 1e-9);
+
+      clearScene();
+      assert('clearScene clears piece groups', S.pieceGroups.size === 0);
+    },
+
     // --- #24 theme toggle button + #22 keyboard-accessible menubar ---
     a11y() {
       const btn = document.getElementById('theme-btn');
@@ -230,7 +274,7 @@ window.__SMOKE__ = function (spec) {
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'assembly', 'a11y'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'assembly', 'stacking', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {

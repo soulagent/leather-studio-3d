@@ -5,6 +5,35 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## (unreleased) — S1: pairwise edge-snap + thickness/layer stacking (2026-06-08)
+
+Second step of the 3D auto-stacking stream. **Code + smoke only — still v0.0.4, no release.**
+The user's core ask: pieces should stack from their seam attachments + layer order **without
+pre-overlapping the 2D patterns**.
+
+- **Per-piece groups** — `loadPattern` now builds each piece into its own `THREE.Group` (panel +
+  that piece's stitch holes/threads), so a piece can be rigidly posed without rebuilding geometry.
+  `S.pieceGroups` (id → {group, shape, thickness}); stitch meshes are per-piece (`S.threadMeshes`).
+- **In-plane alignment** — `align2D(refPoly, movPoly, refXf)` returns the rigid 2D transform
+  (`{theta, tx, ty}`) that maps one seam member's edge endpoints onto the other's; `applyXf2D`
+  applies a pose to a point. Pure mm-plane math, mapped to a group `rotation.y` + `position`.
+- **`computePieceTransforms()`** — S1 pairwise rule: for each 2-piece seam, the **lower-layer**
+  piece (earlier in `shapes[]`) stays put and the **higher-layer** piece snaps its mated edge onto
+  it, lifted in Y by the lower piece's thickness so it **stacks on top** (lining under leather).
+  `S.pieceXf` (id → pose). Multi-seam graphs get proper whole-graph handling in S2; here later seams
+  override.
+- **Flat ↔ Stacked toggle** — `setAssemblyMode('flat'|'stacked')` re-poses every piece group
+  (`applyPieceTransforms`), rebuilds the seam/fold overlays at the new positions (connectors collapse
+  onto the join when stacked), recentres, and persists. A segmented **Layout** control in the
+  Assembly panel (shown only when there's ≥1 join). Flat = the original raw 2D layout, unchanged.
+- **Transform-aware overlays** — `buildSeamOverlays` now maps each member edge through its piece's
+  current pose, so connectors + fold creases follow the stack.
+- **Smoke** — new `stacking` feature (9 asserts: two-piece snap, mated-edge coincidence, lift =
+  reference thickness, reference unmoved, flat/stacked toggle round-trip, clearScene reset). App
+  suite **61 → 70**; build smoke **36/36**.
+
+---
+
 ## (unreleased) — S0: consume the v15 assembly model (Phase 2a foundation) (2026-06-08)
 
 First step of the 3D auto-stacking stream (S0–S4). **Code + smoke only — version stays v0.0.4
