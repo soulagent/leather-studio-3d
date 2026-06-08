@@ -189,6 +189,23 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
    **auto-closes if already current** and only **prompts when an update exists**. Applies to the
    manual *Help ▸ Check for Updates* too (give it the same in-progress indicator). _Mirror the same
    change in the Pattern Designer — see its DEVLOG TODO._
+7. **Card-holder feedback batch (user 2026-06-08):**
+   - **U1 top-right UI**: sync with LPD — show product name + version + a round light/dark **toggle**
+     (match the editor's chrome), anchored top-right.
+   - **U2 default thickness 1 mm** (currently 2).
+   - **U3 camera focus/pivot**: OrbitControls pivots about origin even when a piece is stacked away
+     from it. Add an **F** focus shortcut (frame model / selected piece, set orbit target to its
+     centre), a **pivot selector**, and recenter the assembled model to origin on Stacked/Assembled
+     toggle.
+   - **U4 stitch-hole shape**: render the actual stitch style from the `.lpd` (round vs French/slanted
+     slit, using the per-hole angle), not always-round discs.
+   - **U5 stitch render**: reads as one flat line — make holes distinct + thread look like real saddle
+     stitch.
+   - **U6 partial/unequal seams** (cross-app): edges needn't match length; a T-pocket joins only part
+     of a side, a front pocket is shorter than the back. Needs sub-span/anchor joins (see LPD).
+   - **U7 stitching across stacked pieces** (cross-app, big): align stitch holes through the
+     stacked/grouped layers so a card holder's stitching renders right — likely a new LPD setup/tool.
+     Depends on U5 + U6.
 
 ---
 
