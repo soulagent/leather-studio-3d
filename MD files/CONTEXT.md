@@ -1,5 +1,5 @@
 # Leather Studio 3D — Session Context
-_Last updated: 2026-06-09 · Current version: v0.0.9 · Reads .lpd (Pattern Designer save format v15, assembly-schema v3; seams/folds + partial joins + shared stitch consumed)_
+_Last updated: 2026-06-09 · Current version: v0.0.10 · Reads .lpd (Pattern Designer save format v15, assembly-schema v3; seams/folds + partial joins + shared stitch consumed)_
 
 ---
 
@@ -205,7 +205,16 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
      of a side, a front pocket is shorter than the back. Needs sub-span/anchor joins (see LPD).
    - **U7 stitching across stacked pieces** (cross-app, big): align stitch holes through the
      stacked/grouped layers so a card holder's stitching renders right — likely a new LPD setup/tool.
-     Depends on U5 + U6.
+     Depends on U5 + U6. ✅ first cut DONE v0.0.9 (shared stitch).
+8. **Seam/stack orientation looks inverted (user 2026-06-09, FUTURE):** on the SampleCardHolder the
+   assembled stack doesn't match the intended nesting — pieces appear joined on the **wrong side**, as
+   if the seam edge was created on the **outside instead of the inside**. User's hunch: a **pen-tool
+   edge-creation** issue (the T-pocket is a pen path; its seam edge may be wound/numbered so the
+   stack folds the wrong way). Reference renders in the LPD repo root: `Weird3DRender.png` (wrong —
+   pieces splayed, seam connectors crossing) vs `IntendedStack.png` (the 2D nesting it should become).
+   Likely root cause in **edge winding / align2D direction / seam member orientation** (LPD authoring
+   or 3D `align2D`). Investigate the pen-path edge indexing + `reversed`/anchor inference. NOT yet
+   diagnosed.
 
 ---
 

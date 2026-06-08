@@ -1,0 +1,246 @@
+{
+  "version": 15,
+  "meta": {
+    "created": "2026-06-08T19:01:53.068Z",
+    "units": "mm"
+  },
+  "settings": {
+    "defMargin": 3,
+    "defSpacing": 3.38,
+    "stitchStyle": "french",
+    "histLimit": 100,
+    "snapMM": 1,
+    "snapShapes": true,
+    "rotStep": 15,
+    "dimFontSize": 13,
+    "labelMM": 5,
+    "autoSaveInt": 300,
+    "page": {
+      "id": 1,
+      "name": "Untitled",
+      "preset": "A4",
+      "orient": "portrait",
+      "w": 210,
+      "h": 297,
+      "x": 0,
+      "y": 0
+    }
+  },
+  "artboards": [
+    {
+      "id": 1,
+      "name": "Untitled",
+      "preset": "A4",
+      "orient": "portrait",
+      "w": 210,
+      "h": 297,
+      "x": 0,
+      "y": 0
+    }
+  ],
+  "activeArtboard": 1,
+  "shapes": [
+    {
+      "type": "rect",
+      "x": 47.84186583036572,
+      "y": 21.860776253806463,
+      "w": 100,
+      "h": 70,
+      "hasStitch": true,
+      "stitchMargin": 3,
+      "stitchSpacing": 3.38,
+      "id": 8,
+      "showLabel": true,
+      "rot": 0,
+      "label": "Back Panel",
+      "hidden": false,
+      "locked": false
+    },
+    {
+      "type": "path",
+      "points": [
+        {
+          "x": 47.84186583036572,
+          "y": 113.34933018097897,
+          "cp1x": 47.84186583036572,
+          "cp1y": 113.34933018097897,
+          "cp2x": 47.84186583036572,
+          "cp2y": 113.34933018097897,
+          "corner": true
+        },
+        {
+          "x": 47.84186583036572,
+          "y": 125.349330180979,
+          "cp1x": 47.84186583036572,
+          "cp1y": 125.349330180979,
+          "cp2x": 47.84186583036572,
+          "cp2y": 125.349330180979,
+          "corner": true
+        },
+        {
+          "x": 57.84186583036572,
+          "y": 125.349330180979,
+          "cp1x": 57.84186583036572,
+          "cp1y": 125.349330180979,
+          "cp2x": 57.84186583036572,
+          "cp2y": 125.349330180979,
+          "corner": true
+        },
+        {
+          "x": 67.84186583036572,
+          "y": 161.34933018097905,
+          "cp1x": 67.84186583036572,
+          "cp1y": 161.34933018097905,
+          "cp2x": 67.84186583036572,
+          "cp2y": 161.34933018097905,
+          "corner": true
+        },
+        {
+          "x": 127.84186583036572,
+          "y": 161.34933018097905,
+          "cp1x": 127.84186583036572,
+          "cp1y": 161.34933018097905,
+          "cp2x": 127.84186583036572,
+          "cp2y": 161.34933018097905,
+          "corner": true
+        },
+        {
+          "x": 137.84186583036572,
+          "y": 125.349330180979,
+          "cp1x": 137.84186583036572,
+          "cp1y": 125.349330180979,
+          "cp2x": 137.84186583036572,
+          "cp2y": 125.349330180979,
+          "corner": true
+        },
+        {
+          "x": 147.84186583036572,
+          "y": 125.349330180979,
+          "cp1x": 147.84186583036572,
+          "cp1y": 125.349330180979,
+          "cp2x": 147.84186583036572,
+          "cp2y": 125.349330180979,
+          "corner": true
+        },
+        {
+          "x": 147.84186583036572,
+          "y": 113.34933018097897,
+          "cp1x": 147.84186583036572,
+          "cp1y": 113.34933018097897,
+          "cp2x": 147.84186583036572,
+          "cp2y": 113.34933018097897,
+          "corner": true
+        }
+      ],
+      "closed": true,
+      "hasStitch": true,
+      "stitchMargin": 3,
+      "stitchSpacing": 3.38,
+      "id": 9,
+      "showLabel": true,
+      "rot": 0,
+      "label": "T-pocket",
+      "stitchEdges": [
+        3
+      ],
+      "hidden": false,
+      "locked": false
+    },
+    {
+      "type": "rect",
+      "x": 47.84186583036572,
+      "y": 179.85493743125917,
+      "w": 100,
+      "h": 46,
+      "hasStitch": true,
+      "stitchMargin": 3,
+      "stitchSpacing": 3.38,
+      "id": 10,
+      "showLabel": true,
+      "rot": 0,
+      "label": "Front Panel",
+      "hidden": false,
+      "locked": false,
+      "stitchEdges": [
+        2
+      ]
+    }
+  ],
+  "nextId": 11,
+  "assembly": {
+    "version": 3,
+    "seams": [
+      {
+        "id": 1,
+        "name": "seam 1",
+        "type": "stitch",
+        "order": 0,
+        "allowance": null,
+        "notes": "",
+        "members": [
+          {
+            "shape": 8,
+            "edge": 2
+          },
+          {
+            "shape": 10,
+            "edge": 2
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "name": "seam 2",
+        "type": "stitch",
+        "order": 1,
+        "allowance": null,
+        "notes": "",
+        "members": [
+          {
+            "shape": 8,
+            "edge": 1,
+            "t0": 0,
+            "t1": 0.17
+          },
+          {
+            "shape": 9,
+            "edge": 6
+          },
+          {
+            "shape": 10,
+            "edge": 1
+          }
+        ],
+        "fit": "partial",
+        "anchor": "start"
+      },
+      {
+        "id": 3,
+        "name": "seam 3",
+        "type": "stitch",
+        "order": 2,
+        "allowance": 3,
+        "notes": "",
+        "members": [
+          {
+            "shape": 10,
+            "edge": 3
+          },
+          {
+            "shape": 9,
+            "edge": 0
+          },
+          {
+            "shape": 8,
+            "edge": 3,
+            "t0": 0.83,
+            "t1": 1
+          }
+        ],
+        "fit": "partial",
+        "anchor": "end"
+      }
+    ],
+    "folds": []
+  }
+}

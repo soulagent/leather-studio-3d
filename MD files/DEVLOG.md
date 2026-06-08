@@ -5,6 +5,26 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.10 — stitch fixes: un-mirror faces + margin inset + distinct stitches (2026-06-09)
+
+User feedback after U7: the saddle stitch still looked wrong. Three fixes (paired with LPD v0.8.7):
+
+- **Threads no longer mirrored per face.** `addThreadMesh` used `th = -iron*face` (top `/`, bottom
+  `\`); seeing both faces near an edge read as crossing stitches. Now `th = -iron` on **both** faces —
+  same slant — so they don't cross.
+- **Shared-stitch holes inset by the margin.** `seamStitchSegments3D` was sampling the edge polyline
+  directly (holes ON the line). New `insetEdgePoly`/`shapeCentroid` offset each member's edge **inward
+  by the stitch margin** before resampling, so the seam stitch sits in from the edge.
+- **Distinct stitches.** `segLen` shortened to `0.62 × gap` so each thread reads as a separate slanted
+  dash with a gap at every hole (was tiling into a continuous band).
+
+`stitch3d`/`sharedstitch` smoke gain asserts: "both faces share the slant (not mirrored)" + "shared
+holes inset from the edge by the margin". App smoke **125 → 127**. **Carry-forward (next session):**
+the 3D render may be showing the **back face** (flipped) and the slant may need flipping — see
+`CONTEXT.md` Backlog #8. Geometry-only.
+
+---
+
 ## v0.0.9 — U7: shared stitch across stacked pieces (2026-06-09)
 
 Cross-app with the Pattern Designer's v0.8.6 (assembly-schema **v3**). A stitch seam may carry

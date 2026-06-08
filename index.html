@@ -366,7 +366,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.9';
+  const APP_VERSION = 'v0.0.10';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -595,9 +595,30 @@
     }
     return null;
   }
+  // Approximate shape centroid (local mm) — rect centre / path point average. Used to decide which
+  // way is "into the piece" when insetting the seam stitch line off the edge.
+  function shapeCentroid(sh){
+    if(sh.type==='rect') return { x:sh.x+sh.w/2, y:sh.y+sh.h/2 };
+    if(sh.type==='path' && Array.isArray(sh.points) && sh.points.length){
+      let sx=0, sy=0; for(const p of sh.points){ sx+=p.x; sy+=p.y; } return { x:sx/sh.points.length, y:sy/sh.points.length };
+    }
+    return { x:0, y:0 };
+  }
+  // Offset an edge polyline inward (toward the shape interior) by `margin` mm — so the seam stitch
+  // line sits the stitch margin in from the edge, like independent stitching, not ON the edge.
+  function insetEdgePoly(poly, sh, margin){
+    if(!poly || poly.length<2 || !(margin>0)) return poly;
+    const a=poly[0], b=poly[poly.length-1];
+    let ux=b.x-a.x, uy=b.y-a.y; const L=Math.hypot(ux,uy)||1; ux/=L; uy/=L;
+    let nx=-uy, ny=ux;                                   // edge perpendicular
+    const c=shapeCentroid(sh), mx=(a.x+b.x)/2, my=(a.y+b.y)/2;
+    if((c.x-mx)*nx + (c.y-my)*ny < 0){ nx=-nx; ny=-ny; } // flip to point into the piece
+    return poly.map(p=>({ x:p.x+nx*margin, y:p.y+ny*margin }));
+  }
   // U7 — aligned holes + threads contributed to shape `sh` by shared-stitch seams (local frame).
   // Every member of a seam is resampled to the SAME N+1 arc-length points, so the holes coincide
-  // through the stacked layers once align2D pins the member edges together.
+  // through the stacked layers once align2D pins the member edges together. Each member's edge is
+  // first inset by the stitch margin so the line sits in from the edge (not on it).
   function seamStitchSegments3D(sh, yTop){
     const holes=[], threads=[];
     if(sh.id==null || !S.assembly) return {holes, threads};
@@ -606,10 +627,11 @@
       const res=(seam.resolved||[]).filter(m=>m.poly && m.poly.length>=2);
       if(res.length<2) continue;
       const sp = seam.stitch.spacing>0 ? seam.stitch.spacing : (LP.defSpacing||3.38);
-      const N = Math.max(1, Math.round(polyLength(res[0].poly)/sp));
+      const mg = seam.stitch.margin>0 ? seam.stitch.margin : (LP.defMargin||3);
+      const N = Math.max(1, Math.round(polyLength(insetEdgePoly(res[0].poly, res[0].sh, mg))/sp));
       for(const m of res){
         if(m.shape!==sh.id) continue;
-        const pts=resampleByArcLength(m.poly, N), run=[];
+        const pts=resampleByArcLength(insetEdgePoly(m.poly, m.sh, mg), N), run=[];
         for(let i=0;i<pts.length;i++){
           const a=pts[Math.max(0,i-1)], b=pts[Math.min(pts.length-1,i+1)];
           const hole={x:pts[i].x, y:pts[i].y, a:Math.atan2(b.y-a.y,b.x-a.x), yTop, forced:(i===0||i===pts.length-1)};
@@ -1003,9 +1025,13 @@
       const a=s.a, b=s.b, yTop=s.yTop ?? S.thickness;
       let ux=b.x-a.x, uy=b.y-a.y; const len=Math.hypot(ux,uy)||1; ux/=len; uy/=len;
       const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;                       // stitch centre on the seam
-      const segLen=Math.max(len-2*STITCH_INSET, len*0.5)/Math.cos(iron); // reach toward both holes despite the tilt
-      for (const face of [1,-1]){           // +1 = top face, -1 = bottom face (mirrored slant)
-        const th=-iron*face;                // top face = edgeAngle - iron, matching the editor's french slit
+      // Shorter than the hole gap so each stitch reads as a DISTINCT slanted dash (with a gap at
+      // every hole), like a real saddle stitch — not a continuous band tiling along the edge.
+      const segLen=Math.max(len*0.62, len-2*STITCH_INSET);
+      for (const face of [1,-1]){           // +1 = top face, -1 = bottom face
+        const th=-iron;                     // SAME slant on both faces (edgeAngle - iron, matching the
+                                            // editor's french slit) — NOT mirrored, so the two faces
+                                            // don't read as crossing stitches near the edge.
         const dxs=ux*Math.cos(th)-uy*Math.sin(th), dys=ux*Math.sin(th)+uy*Math.cos(th); // seam dir rotated by th
         const sx=mx-dxs*segLen/2, sy=my-dys*segLen/2;
         const ex=mx+dxs*segLen/2, ey=my+dys*segLen/2;

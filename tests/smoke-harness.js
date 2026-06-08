@@ -198,9 +198,11 @@ window.__SMOKE__ = function (spec) {
       assert('U5: french slant = 30deg', Math.abs(stitchSlant('french') - Math.PI / 6) < 1e-6);
       assert('U5: diamond slant = 45deg', Math.abs(stitchSlant('diamond') - Math.PI / 4) < 1e-6);
       const dirOf = i => { const M = new THREE.Matrix4(); tm.getMatrixAt(i, M); const e = M.elements; return new THREE.Vector3(e[4], e[5], e[6]).normalize(); };
-      const d0 = dirOf(0), d2 = dirOf(2);   // top-face stitch of each of the two horizontal gaps
+      const d0 = dirOf(0), d1 = dirOf(1), d2 = dirOf(2);   // gap0 top, gap0 bottom, gap1 top
       assert('U5: consecutive top stitches are parallel (follow the line)', Math.abs(d0.dot(d2)) > 0.999, `dot=${d0.dot(d2)}`);
       assert('U5: stitch is slanted off the seam, not axis-aligned', Math.abs(d0.z) > 0.05 && Math.abs(d0.z) < 0.95, `z=${d0.z}`);
+      // Both faces share the slant (NOT mirrored) — fixes the crossing-stitch look (user 2026-06-09).
+      assert('U5: top + bottom face share the same slant (not mirrored)', d0.dot(d1) > 0.999, `dot=${d0.dot(d1)}`);
 
       clearScene();
     },
@@ -343,6 +345,9 @@ window.__SMOKE__ = function (spec) {
       assert('U7-3D: count = round(len/spacing)+1', h1.length === Math.round(80 / 5) + 1, `n=${h1.length}`);
       assert('U7-3D: threads link consecutive holes per run', t1.length === h1.length - 1, `t=${t1.length}`);
       assert('U7-3D: holes carry an orientation angle', h1.every(p => typeof p.a === 'number'));
+      // Margin inset: member edge 1 of rect id1 is the right edge at x=100; holes must sit the
+      // 3mm stitch margin IN from it (~x=97), not on the edge line (user 2026-06-09).
+      assert('U7-3D: shared holes inset from the edge by the margin', h1.every(p => p.x < 99) && h1.some(p => p.x > 95), `xs=${h1.map(p => p.x.toFixed(1)).join(',')}`);
       clearScene();
     },
 
