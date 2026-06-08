@@ -189,9 +189,18 @@ window.__SMOKE__ = function (spec) {
 
       // U5: each gap gets a stitch on both faces -> 2 thread instances per segment
       const segs = [{ a: { x: 0, y: 0 }, b: { x: 5, y: 0 }, yTop: 2 }, { a: { x: 5, y: 0 }, b: { x: 10, y: 0 }, yTop: 2 }];
+      LP.stitchStyle = 'french';
       addThreadMesh(segs, g);
       const tm = S.threadMeshes[S.threadMeshes.length - 1];
       assert('thread = 2 instances per gap (top + bottom)', tm.count === segs.length * 2, `count=${tm.count}`);
+      // U5 fix: stitches are tilted by a CONSTANT iron angle and centred on the seam, so a run reads
+      // as a clean parallel slant that follows the line (not opposite-side endpoints crossing it).
+      assert('U5: french slant = 30deg', Math.abs(stitchSlant('french') - Math.PI / 6) < 1e-6);
+      assert('U5: diamond slant = 45deg', Math.abs(stitchSlant('diamond') - Math.PI / 4) < 1e-6);
+      const dirOf = i => { const M = new THREE.Matrix4(); tm.getMatrixAt(i, M); const e = M.elements; return new THREE.Vector3(e[4], e[5], e[6]).normalize(); };
+      const d0 = dirOf(0), d2 = dirOf(2);   // top-face stitch of each of the two horizontal gaps
+      assert('U5: consecutive top stitches are parallel (follow the line)', Math.abs(d0.dot(d2)) > 0.999, `dot=${d0.dot(d2)}`);
+      assert('U5: stitch is slanted off the seam, not axis-aligned', Math.abs(d0.z) > 0.05 && Math.abs(d0.z) < 0.95, `z=${d0.z}`);
 
       clearScene();
     },

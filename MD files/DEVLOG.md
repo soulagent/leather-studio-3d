@@ -5,6 +5,27 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.8 — stitch slant now follows the seam line (card-holder feedback) (2026-06-09)
+
+User flagged that the saddle-stitch threads didn't follow the drawn (red) seam line — they read as a
+steep X-crisscross over it. Cause: `addThreadMesh` offset each stitch's two endpoints to **opposite**
+perpendicular sides of the seam by a **fixed 0.32 mm** (`STITCH_SLANT`). So every stitch crossed the
+centreline diagonally, and because the perpendicular offset was a fixed distance (not an angle), the
+slant went **near-perpendicular at tight spacing**. Both faces showing then made it an X.
+
+Fix — each stitch is now **centred on the seam** and tilted by a **constant iron angle** (`stitchSlant`:
+french 30° / diamond 45° / round 20°, matching the editor's slit), reaching toward both holes via
+`segLen = (gap − 2·inset)/cos(angle)`. A run now reads as a clean parallel slant **along** the line;
+the top face leans one way (edgeAngle − iron, matching the 2D french slit) and the bottom mirrors it.
+`STITCH_SLANT` removed; `STITCH_INSET`/`THREAD_RISE` unchanged.
+
+Verified by headless render (`tests/_shot.ps1`) before/after — the crisscross became a consistent
+saddle-stitch slant around the whole perimeter. `stitch3d` smoke gains: `stitchSlant` angle checks,
+consecutive top-face stitches are **parallel** (follow the line), and each stitch is slanted off the
+seam (not axis-aligned). App smoke **113 → 117**; build smoke 36/36.
+
+---
+
 ## v0.0.7 — card-holder feedback U6: partial / unequal-length seams (2026-06-08)
 
 Cross-app with the Pattern Designer's v0.8.4 (assembly-schema **v2**). The viewer can now consume

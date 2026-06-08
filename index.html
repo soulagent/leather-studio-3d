@@ -366,7 +366,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.7';
+  const APP_VERSION = 'v0.0.8';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -936,26 +936,33 @@
     (group||patternGroup).add(m); S.stitchMeshes.push(m);
   }
   // U5: saddle-stitch thread. Each gap between consecutive holes gets a stitch on
-  // BOTH faces (two-needle saddle stitch covers every gap top + bottom). Endpoints
-  // are inset from the hole centres (so the dark holes show through as distinct dots)
-  // and shifted perpendicular to the seam in opposite directions per face — the
-  // mirrored slant that makes hand-saddle-stitch read correctly.
-  const STITCH_INSET=0.34, STITCH_SLANT=0.32, THREAD_RISE=0.12;
+  // BOTH faces (two-needle saddle stitch covers every gap top + bottom). Each stitch
+  // is CENTRED on the seam and tilted by a CONSTANT angle (the pricking-iron slant —
+  // french 30deg / diamond 45deg, matching the editor's slit) so the run reads as a
+  // clean parallel slant that follows the seam line. The top face leans one way, the
+  // bottom mirrors it — the hand-saddle-stitch look. (Earlier builds shifted the two
+  // endpoints to OPPOSITE sides by a fixed mm, so each stitch crossed the centreline
+  // and the slant went near-perpendicular at tight spacing — the "wrong angle" bug.)
+  const STITCH_INSET=0.34, THREAD_RISE=0.12;
+  // Slant of each stitch off the seam line, by hole style (radians).
+  function stitchSlant(style){ return style==='diamond' ? Math.PI/4 : style==='round' ? Math.PI/9 : Math.PI/6; }
   function addThreadMesh(segs, group){
     const geo=new THREE.CylinderGeometry(THREAD_R,THREAD_R,1,8); // unit-height; scaled per instance
     const mat=new THREE.MeshStandardMaterial({color:S.stitch, roughness:0.5});
     const m=new THREE.InstancedMesh(geo,mat,segs.length*2);
     const o=new THREE.Object3D(), up=new THREE.Vector3(0,1,0), dir=new THREE.Vector3(), q=new THREE.Quaternion();
+    const iron=stitchSlant(LP.stitchStyle);
     let idx=0;
     for (const s of segs){
       const a=s.a, b=s.b, yTop=s.yTop ?? S.thickness;
       let ux=b.x-a.x, uy=b.y-a.y; const len=Math.hypot(ux,uy)||1; ux/=len; uy/=len;
-      const nx=-uy, ny=ux;                  // left normal in the shape plane
+      const mx=(a.x+b.x)/2, my=(a.y+b.y)/2;                       // stitch centre on the seam
+      const segLen=Math.max(len-2*STITCH_INSET, len*0.5)/Math.cos(iron); // reach toward both holes despite the tilt
       for (const face of [1,-1]){           // +1 = top face, -1 = bottom face (mirrored slant)
-        const sx=a.x + ux*STITCH_INSET + nx*STITCH_SLANT*face;
-        const sy=a.y + uy*STITCH_INSET + ny*STITCH_SLANT*face;
-        const ex=b.x - ux*STITCH_INSET - nx*STITCH_SLANT*face;
-        const ey=b.y - uy*STITCH_INSET - ny*STITCH_SLANT*face;
+        const th=-iron*face;                // top face = edgeAngle - iron, matching the editor's french slit
+        const dxs=ux*Math.cos(th)-uy*Math.sin(th), dys=ux*Math.sin(th)+uy*Math.cos(th); // seam dir rotated by th
+        const sx=mx-dxs*segLen/2, sy=my-dys*segLen/2;
+        const ex=mx+dxs*segLen/2, ey=my+dys*segLen/2;
         const y = face>0 ? yTop+THREAD_RISE : -THREAD_RISE;
         const axw=sx, azw=-sy, bxw=ex, bzw=-ey;
         dir.set(bxw-axw, 0, bzw-azw); const L=dir.length()||1; dir.normalize();
