@@ -107,7 +107,7 @@
     background:var(--raised);border-left:3px solid var(--text-faint);color:var(--text-2)}
   .asm-prob:hover{color:var(--text)}
   .asm-prob:focus-visible{outline:2px solid var(--accent-bright);outline-offset:-2px}
-  .asm-prob.length,.asm-prob.dangling{border-left-color:#e74c3c}
+  .asm-prob.length,.asm-prob.dangling,.asm-prob.gap{border-left-color:#e74c3c}
   .asm-prob.incomplete{border-left-color:#f59e0b}
   .asm-prob-ic{flex:0 0 auto;opacity:.85}
   /* segmented Flat/Stacked toggle */
@@ -958,25 +958,77 @@
     const c=Math.cos(theta), s=Math.sin(theta);
     return { theta, tx: RA0.x-(c*MB0.x - s*MB0.y), ty: RA0.y-(s*MB0.x + c*MB0.y), dy:0 };
   }
-  // S1 — pairwise edge-snap + thickness/layer stacking. For each 2-piece seam, the
-  // lower-layer piece stays put and the higher-layer one snaps its mated edge onto it,
-  // offset up by the lower piece's thickness so it stacks on top (lining under leather,
-  // etc.). Multi-seam graphs are handled properly in S2; here later seams just override.
+  // S2 — whole seam-graph positioning. BFS from a root (most-connected) piece over the
+  // seam adjacency: each newly reached piece snaps its mated edge onto its already-placed
+  // parent, stacked in Y by global LAYER order (touching, by thickness). Handles N-way
+  // spines (3+ pieces sharing one seam) and pieces in several seams (first/shortest path
+  // wins). The traversal is a spanning TREE; extra (cycle) seams are not forced — instead
+  // their residual gap is measured + flagged (Tier-2), per the "preview the problem" goal.
+  const GAP_TOL = 1.0; // mm — residual seam gap that counts as "doesn't meet in the assembly"
   function computePieceTransforms(){
     S.pieceXf = new Map();
     for (const id of S.pieceGroups.keys()) S.pieceXf.set(id, { ...IDENT_XF });
     if (!S.assembly) return;
     const shapes = Array.isArray(S.lastData?.shapes) ? S.lastData.shapes : [];
     const rank = new Map(); shapes.forEach((s,i)=>{ if(s.id!=null) rank.set(s.id, i); });
-    for (const seam of S.assembly.seams){
-      if (seam.resolved.length !== 2) continue;
-      let [refM, movM] = seam.resolved;
-      if (refM.shape === movM.shape) continue;                 // self-seam — nothing to stack
-      if ((rank.get(movM.shape)??0) < (rank.get(refM.shape)??0)){ [refM, movM] = [movM, refM]; }
-      const refXf = S.pieceXf.get(refM.shape) || { ...IDENT_XF };
-      const xf = align2D(refM.poly, movM.poly, refXf);
-      xf.dy = (refXf.dy||0) + (S.pieceGroups.get(refM.shape)?.thickness || S.thickness);
-      S.pieceXf.set(movM.shape, xf);
+    const thick = id => S.pieceGroups.get(id)?.thickness || S.thickness;
+    // Only seams that can position pieces (2+ distinct resolved members).
+    const seams = S.assembly.seams.filter(s => new Set(s.resolved.map(m=>m.shape)).size >= 2);
+    const pieceSeams = new Map();   // piece id -> seams it belongs to
+    for (const seam of seams) for (const m of seam.resolved){
+      if (!pieceSeams.has(m.shape)) pieceSeams.set(m.shape, []);
+      if (!pieceSeams.get(m.shape).includes(seam)) pieceSeams.get(m.shape).push(seam);
+    }
+    const degree = id => (pieceSeams.get(id)?.length || 0);
+    const remaining = new Set([...pieceSeams.keys()]);   // seam-touched pieces; others stay at raw layout
+    const visited = new Set();
+    while (remaining.size){
+      // Root each connected component at its most-connected piece (tie → lowest layer).
+      let root=null, best=-1;
+      for (const id of remaining){ const d=degree(id), r=rank.get(id)??1e9;
+        if (d>best || (d===best && r<(rank.get(root)??1e9))){ best=d; root=id; } }
+      S.pieceXf.set(root, { ...IDENT_XF }); visited.add(root); remaining.delete(root);
+      const queue=[root];
+      while (queue.length){
+        const p=queue.shift(), pXf=S.pieceXf.get(p);
+        for (const seam of pieceSeams.get(p)||[]){
+          const pm = seam.resolved.find(m=>m.shape===p); if(!pm) continue;
+          // Stack the seam's members by layer order; p anchors, others step by thickness.
+          const ordered = [...seam.resolved].sort((a,b)=>(rank.get(a.shape)??0)-(rank.get(b.shape)??0));
+          const pi = ordered.findIndex(m=>m.shape===p);
+          for (let j=0;j<ordered.length;j++){
+            const m=ordered[j];
+            if (m.shape===p || visited.has(m.shape)) continue;   // self / already placed (cycle) → skip
+            let dy=pXf.dy;
+            if (j>pi) for(let t=pi;t<j;t++) dy+=thick(ordered[t].shape);
+            else      for(let t=j;t<pi;t++) dy-=thick(ordered[t].shape);
+            const xf = align2D(pm.poly, m.poly, pXf); xf.dy = dy;
+            S.pieceXf.set(m.shape, xf); visited.add(m.shape); remaining.delete(m.shape);
+            queue.push(m.shape);
+          }
+        }
+      }
+    }
+    computeSeamGaps(seams);
+  }
+  // Tier-2: after positioning, flag seams whose mated edges don't actually coincide in the
+  // XZ plane (a closed loop that can't lie flat, or an over-constrained cycle). Stack height
+  // (dy) is intended separation, so the gap is measured in-plane only. Length-mismatched
+  // seams already carry a Tier-1 warning, so they're skipped here.
+  function computeSeamGaps(seams){
+    const lengthBad = new Set(S.problems.filter(p=>p.kind==='length').map(p=>p.seam));
+    for (const seam of seams){
+      if (lengthBad.has(seam.id)) continue;
+      const ref = seam.resolved[0], refXf = S.pieceXf.get(ref.shape) || IDENT_XF;
+      const refPts = resampleByArcLength(ref.poly, SEAM_RIBBON_K).map(p=>applyXf2D(refXf,p));
+      let maxGap=0;
+      for (let k=1;k<seam.resolved.length;k++){
+        const m=seam.resolved[k], xf=S.pieceXf.get(m.shape)||IDENT_XF;
+        const pts=resampleByArcLength(m.poly, SEAM_RIBBON_K).map(p=>applyXf2D(xf,p));
+        for (let i=0;i<pts.length;i++) maxGap=Math.max(maxGap, Math.hypot(pts[i].x-refPts[i].x, pts[i].y-refPts[i].y));
+      }
+      if (maxGap > GAP_TOL)
+        S.problems.push({ seam:seam.id, kind:'gap', msg:`"${seam.name}": edges don't meet in the assembly (gap ${maxGap.toFixed(1)} mm) — a closed loop that won't lie flat` });
     }
   }
   // Pose each piece group for the active mode (stacked = computed pose, flat = identity).
@@ -1013,7 +1065,7 @@
     if (!S.assembly) return;
     const memberToW = m => { const xf=pieceXfFor(m.shape), top=(xf.dy||0)+pieceThickness(m.sh)+0.4;
       return p => { const q=applyXf2D(xf, p); return new THREE.Vector3(q.x, top, -q.y); }; };
-    const badSeams = new Set(S.problems.filter(p => p.kind==='length' || p.kind==='dangling').map(p => p.seam));
+    const badSeams = new Set(S.problems.filter(p => p.kind==='length' || p.kind==='dangling' || p.kind==='gap').map(p => p.seam));
     // Seam connectors
     for (const seam of S.assembly.seams){
       if (seam.resolved.length < 2) continue;

@@ -246,6 +246,46 @@ window.__SMOKE__ = function (spec) {
       assert('clearScene clears piece groups', S.pieceGroups.size === 0);
     },
 
+    // --- S2: whole seam-graph positioning from a root (chain / N-way / cycle) ---
+    graph() {
+      const rect = (id, x, th) => ({ id, type: 'rect', x, y: 0, w: 100, h: 80, thickness: th });
+      const gapCount = () => S.problems.filter(p => p.kind === 'gap').length;
+      const moved = id => { const xf = S.pieceXf.get(id); return Math.abs(xf.tx) > 1e-6 || Math.abs(xf.ty) > 1e-6 || Math.abs(xf.theta) > 1e-6; };
+
+      // chain A-B-C: root should be the most-connected middle piece B (degree 2)
+      loadPattern({ shapes: [rect(1,0,2), rect(2,400,2), rect(3,800,2)],
+        assembly: { version: 1, seams: [
+          { id: 1, name: 's1', members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 3 }] },
+          { id: 2, name: 's2', members: [{ shape: 2, edge: 1 }, { shape: 3, edge: 3 }] },
+        ], folds: [] } }, 'chain');
+      assert('chain: root is the most-connected piece (B identity)',
+        S.pieceXf.get(2).dy === 0 && S.pieceXf.get(2).theta === 0 && S.pieceXf.get(2).tx === 0);
+      assert('chain: both leaves positioned', moved(1) && moved(3));
+      assert('chain: tree closes with no gap', gapCount() === 0, `gaps=${gapCount()}`);
+
+      // N-way spine: 3 pieces share one seam → stack at distinct, cumulative heights
+      loadPattern({ shapes: [rect(1,0,2), rect(2,400,3), rect(3,800,4)],
+        assembly: { version: 1, seams: [
+          { id: 1, name: 'spine', members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 1 }, { shape: 3, edge: 1 }] },
+        ], folds: [] } }, 'nway');
+      assert('N-way: root (lowest layer) at base', S.pieceXf.get(1).dy === 0);
+      assertNear('N-way: 2nd piece lifted by piece1 thickness', S.pieceXf.get(2).dy, 2, 1e-6);
+      assertNear('N-way: 3rd piece lifted by piece1+piece2', S.pieceXf.get(3).dy, 5, 1e-6);
+      assert('N-way: spine coincides (no gap)', gapCount() === 0, `gaps=${gapCount()}`);
+
+      // cycle A-B-C-A: spanning tree places A,B,C; the closing seam can't coincide → gap flagged
+      loadPattern({ shapes: [rect(1,0,2), rect(2,400,2), rect(3,800,2)],
+        assembly: { version: 1, seams: [
+          { id: 1, name: 's1', members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 3 }] },
+          { id: 2, name: 's2', members: [{ shape: 2, edge: 1 }, { shape: 3, edge: 3 }] },
+          { id: 3, name: 's3', members: [{ shape: 3, edge: 1 }, { shape: 1, edge: 3 }] },
+        ], folds: [] } }, 'cycle');
+      assert('cycle: residual-gap problem flagged', gapCount() >= 1, `gaps=${gapCount()}`);
+      assert('cycle: all three pieces still placed', !moved(1) && moved(2) && moved(3));
+
+      clearScene();
+    },
+
     // --- #24 theme toggle button + #22 keyboard-accessible menubar ---
     a11y() {
       const btn = document.getElementById('theme-btn');
@@ -274,7 +314,7 @@ window.__SMOKE__ = function (spec) {
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'assembly', 'stacking', 'a11y'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'assembly', 'stacking', 'graph', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {

@@ -5,6 +5,30 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## (unreleased) — S2: whole seam-graph positioning from a root (2026-06-08)
+
+Third step of the 3D auto-stacking stream. **Code + smoke only — still v0.0.4, no release.**
+Generalises S1's single-pair stacking to a whole multi-piece assembly.
+
+- **BFS over the seam graph** — `computePieceTransforms` now roots each connected component at its
+  **most-connected** piece (tie → lowest layer), then breadth-first positions every reachable piece:
+  each newly visited piece snaps its mated edge onto its already-placed parent (`align2D`) and stacks
+  in Y by **global layer order**, touching, stepped by thickness. First/shortest path wins.
+- **N-way spines** — a seam with 3+ members positions all of them against the visiting piece's edge
+  and stacks them by layer (cumulative thickness), so 3-on-a-spine goods (card-holder spine) stack at
+  distinct heights instead of colliding.
+- **Tree-first, cycles flagged not forced** — the traversal is a spanning tree; a seam that would
+  re-position an already-placed piece (a cycle / closure) is skipped for positioning. `computeSeamGaps`
+  then measures each seam's residual **in-plane** gap between mated edges and raises a **Tier-2 'gap'
+  problem** ("edges don't meet in the assembly … a closed loop that won't lie flat") — the
+  "preview the problem" payoff. Gap seams also colour their connector red. Length-mismatched seams
+  (Tier-1) are skipped to avoid double-warning.
+- **Smoke** — new `graph` feature (9 asserts: chain roots at the middle piece + closes gap-free;
+  N-way spine stacks at cumulative heights; a 3-seam cycle flags a residual gap with all pieces still
+  placed). App suite **70 → 79**; build smoke **36/36**.
+
+---
+
 ## (unreleased) — S1: pairwise edge-snap + thickness/layer stacking (2026-06-08)
 
 Second step of the 3D auto-stacking stream. **Code + smoke only — still v0.0.4, no release.**

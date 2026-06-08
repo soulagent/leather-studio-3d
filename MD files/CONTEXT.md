@@ -137,12 +137,15 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
   incomplete). `buildSeamOverlays()` draws Phase-2a **flat** connectors (coloured ribbons between
   paired edges, red on problem) + dashed **fold** creases; per-piece `thickness` now drives each
   panel's extrude depth + its stitch height. State: `S.assembly`/`S.seamMeshes`/`S.problems`/
-  `S.showSeams`. **S1 adds a STACKED layout** (`S.assemblyMode`, `S.pieceGroups`, `S.pieceXf`): each
-  piece is its own `THREE.Group`; `align2D`/`computePieceTransforms` snap a 2-piece seam's mated
-  edges together and stack the higher-layer piece on top by thickness (layer order = `shapes[]`
-  order); a Flat↔Stacked toggle (`setAssemblyMode`) re-poses pieces + rebuilds overlays. Still
-  **no folding** — hinge/fold (dihedral bend, assemble animation, Tier-2 gap check) + whole-graph
-  positioning from a root are S2–S3. Folding remains 2D→3D-ill-posed in general; tractable path =
+  `S.showSeams`. **S1–S2 add a STACKED layout** (`S.assemblyMode`, `S.pieceGroups`, `S.pieceXf`):
+  each piece is its own `THREE.Group`; `align2D` gives the in-plane rigid transform that snaps one
+  seam member's mated edge onto another's. `computePieceTransforms` (S2) does **whole-graph BFS** from
+  the most-connected root: every reachable piece snaps onto its parent and stacks by global layer
+  order (cumulative thickness), handling **N-way spines** (3+ on a seam) and multi-seam pieces; the
+  traversal is a spanning tree and cycles are **flagged not forced** — `computeSeamGaps` raises a
+  **Tier-2 'gap'** problem where mated edges don't coincide. A Flat/Stacked toggle (`setAssemblyMode`)
+  re-poses pieces + rebuilds overlays. Still **no folding** — hinge/fold (dihedral bend, assemble
+  animation/slider) is S3. Folding remains 2D→3D-ill-posed in general; tractable path =
   hinge tree for tree-structured goods, parametric catalogue for closed loops. Consume `assembly`
   **read-only**; absent `assembly` (any pre-v15 file) → flat viewer unchanged.
 
