@@ -318,6 +318,34 @@ window.__SMOKE__ = function (spec) {
       clearScene();
     },
 
+    // --- U7: shared stitch — every member gets the SAME aligned hole layout (holes coincide) ---
+    sharedstitch() {
+      loadPattern({
+        shapes: [
+          { id: 1, type: 'rect', x: 0,   y: 0, w: 100, h: 80, name: 'back' },
+          { id: 2, type: 'rect', x: 300, y: 0, w: 100, h: 80, name: 'front' },
+        ],
+        assembly: { version: 3, seams: [
+          { id: 1, name: 'spine', type: 'stitch', stitch: { shared: true, spacing: 5 },
+            members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 3 }] },   // both 80mm edges
+        ] },
+      }, 'shared');
+      const seam = S.assembly.seams.find(s => s.id === 1);
+      assert('U7-3D: buildAssembly carries shared stitch', seam.stitch && seam.stitch.shared === true && seam.stitch.spacing === 5, JSON.stringify(seam.stitch));
+      // member edges are seam-driven (not independently stitched); a free edge still is
+      assert('U7-3D: member edge skipped by edgeStitched', edgeStitched({ id: 1, type: 'rect', hasStitch: true }, 1) === false);
+      assert('U7-3D: non-member edge still stitched', edgeStitched({ id: 1, type: 'rect', hasStitch: true }, 0) === true);
+      // collect seam holes per member shape — counts must match so they coincide through the stack
+      const h1 = [], t1 = []; collectStitches({ id: 1, hidden: false, hasStitch: false }, h1, t1);
+      const h2 = [], t2 = []; collectStitches({ id: 2, hidden: false, hasStitch: false }, h2, t2);
+      assert('U7-3D: both members get aligned holes', h1.length > 0 && h2.length > 0, `${h1.length} / ${h2.length}`);
+      assert('U7-3D: members share hole count (coincide)', h1.length === h2.length, `${h1.length} vs ${h2.length}`);
+      assert('U7-3D: count = round(len/spacing)+1', h1.length === Math.round(80 / 5) + 1, `n=${h1.length}`);
+      assert('U7-3D: threads link consecutive holes per run', t1.length === h1.length - 1, `t=${t1.length}`);
+      assert('U7-3D: holes carry an orientation angle', h1.every(p => typeof p.a === 'number'));
+      clearScene();
+    },
+
     // --- S1: pairwise edge-snap + thickness/layer stacking ---
     stacking() {
       // two rects drawn far apart, joined along equal-length edges (rect1 right <-> rect2 left)
@@ -469,7 +497,7 @@ window.__SMOKE__ = function (spec) {
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'camera', 'stitch3d', 'nostitch', 'assembly', 'partialseams', 'stacking', 'graph', 'fold', 'a11y'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'camera', 'stitch3d', 'nostitch', 'assembly', 'partialseams', 'sharedstitch', 'stacking', 'graph', 'fold', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {

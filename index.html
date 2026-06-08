@@ -366,7 +366,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.8';
+  const APP_VERSION = 'v0.0.9';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -580,9 +580,45 @@
     return 0;
   }
   function edgeStitched(sh, e){
+    // U7: a shared-stitch seam owns this edge → stitched by the seam layout, not independently.
+    if(sh && sh.id!=null && sharedSeamForEdge3D(sh.id, e)) return false;
     if(!sh.hasStitch) return false;
     if(!sh.stitchEdges) return true;
     return sh.stitchEdges.includes(e);
+  }
+  // U7 — the shared-stitch seam that owns (shapeId, edge), or null.
+  function sharedSeamForEdge3D(id, e){
+    if(!S.assembly) return null;
+    for(const seam of S.assembly.seams){
+      if(seam.type!=='stitch' || !seam.stitch || !seam.stitch.shared) continue;
+      if(seam.members.some(m => m.shape===id && m.edge===e)) return seam;
+    }
+    return null;
+  }
+  // U7 — aligned holes + threads contributed to shape `sh` by shared-stitch seams (local frame).
+  // Every member of a seam is resampled to the SAME N+1 arc-length points, so the holes coincide
+  // through the stacked layers once align2D pins the member edges together.
+  function seamStitchSegments3D(sh, yTop){
+    const holes=[], threads=[];
+    if(sh.id==null || !S.assembly) return {holes, threads};
+    for(const seam of S.assembly.seams){
+      if(seam.type!=='stitch' || !seam.stitch || !seam.stitch.shared) continue;
+      const res=(seam.resolved||[]).filter(m=>m.poly && m.poly.length>=2);
+      if(res.length<2) continue;
+      const sp = seam.stitch.spacing>0 ? seam.stitch.spacing : (LP.defSpacing||3.38);
+      const N = Math.max(1, Math.round(polyLength(res[0].poly)/sp));
+      for(const m of res){
+        if(m.shape!==sh.id) continue;
+        const pts=resampleByArcLength(m.poly, N), run=[];
+        for(let i=0;i<pts.length;i++){
+          const a=pts[Math.max(0,i-1)], b=pts[Math.min(pts.length-1,i+1)];
+          const hole={x:pts[i].x, y:pts[i].y, a:Math.atan2(b.y-a.y,b.x-a.x), yTop, forced:(i===0||i===pts.length-1)};
+          holes.push(hole); run.push(hole);
+        }
+        for(let i=0;i<run.length-1;i++) threads.push({a:run[i], b:run[i+1], yTop});
+      }
+    }
+    return {holes, threads};
   }
   function stitchRect(sh){
     const m=sh.stitchMargin??LP.defMargin, sp=sh.stitchSpacing??LP.defSpacing;
@@ -820,6 +856,8 @@
     LP.stitchStyle = data?.settings?.stitchStyle ?? 'french';
     const shapes = Array.isArray(data?.shapes) ? data.shapes : [];
     let made = 0, holeCt = 0;
+    // Resolve seams/folds FIRST so per-piece stitch collection can see shared-stitch seams (U7).
+    buildAssembly(data);            // resolve seams/folds + Tier-1 problems (v15; no-op pre-v15)
     // Each piece is built into its OWN group (so it can be rigidly posed for stacking/
     // folding later). The group origin is world origin; geometry is baked at raw 2D coords.
     shapes.forEach((sh, idx) => {
@@ -844,7 +882,6 @@
       S.pieceGroups.set(sh.id != null ? sh.id : '_'+idx, { group:pg, shape:sh, thickness:pieceThickness(sh) });
     });
     applyStitchVisibility();
-    buildAssembly(data);            // resolve seams/folds + Tier-1 problems (v15; no-op pre-v15)
     computePieceTransforms();       // S1: pairwise edge-snap + thickness/layer stacking poses
     applyPieceTransforms();         // pose each piece group for the current assemblyMode
     buildSeamOverlays();            // seam connectors + fold creases (transform-aware)
@@ -895,16 +932,25 @@
 
   // Stitch hole points + thread segments for one shape (appended to the arrays).
   function collectStitches(sh, holes, threads){
-    if (sh.hidden || !sh.hasStitch) return;
-    const res = stitchFor(sh); if (!res || !res.pts.length) return;
-    const P = res.pts, th = pieceThickness(sh);       // per-piece top-face height
-    for (const p of P){ p.yTop = th; holes.push(p); }
-    const sp = sh.stitchSpacing ?? LP.defSpacing, tol = sp*1.8;
-    const join = (a,b)=>{ if (Math.hypot(b.x-a.x,b.y-a.y) <= tol) threads.push({a,b,yTop:th}); };
-    for (let i=0;i<P.length-1;i++) join(P[i],P[i+1]);
-    // close the loop for whole-perimeter shapes
-    const wraps = sh.type!=='path' || sh.closed;
-    if (wraps && P.length>2) join(P[P.length-1], P[0]);
+    if (sh.hidden) return;
+    const th = pieceThickness(sh);                     // per-piece top-face height
+    // Independent per-edge holes (edges owned by a shared-stitch seam are skipped via edgeStitched).
+    if (sh.hasStitch){
+      const res = stitchFor(sh);
+      if (res && res.pts.length){
+        const P = res.pts;
+        for (const p of P){ p.yTop = th; holes.push(p); }
+        const sp = sh.stitchSpacing ?? LP.defSpacing, tol = sp*1.8;
+        const join = (a,b)=>{ if (Math.hypot(b.x-a.x,b.y-a.y) <= tol) threads.push({a,b,yTop:th}); };
+        for (let i=0;i<P.length-1;i++) join(P[i],P[i+1]);
+        const wraps = sh.type!=='path' || sh.closed;   // close the loop for whole-perimeter shapes
+        if (wraps && P.length>2) join(P[P.length-1], P[0]);
+      }
+    }
+    // U7: aligned holes + threads from any shared-stitch seam this shape belongs to.
+    const seamSt = seamStitchSegments3D(sh, th);
+    for (const p of seamSt.holes) holes.push(p);
+    for (const t of seamSt.threads) threads.push(t);
   }
 
   const HOLE_R=0.55, HOLE_H=0.7, THREAD_R=0.38;
@@ -1003,7 +1049,10 @@
       const dangling = members.filter(m => !m.resolved && !m.hidden);
       const sObj = { id:seam.id, name:seam.name||('seam '+seam.id), type:seam.type||'stitch',
                      order: seam.order ?? null, fit: partial?'partial':'full',
-                     anchor: seam.anchor==='end'?'end':'start', members, resolved };
+                     anchor: seam.anchor==='end'?'end':'start', members, resolved,
+                     // U7: a shared stitch layout so members' holes coincide across the stack.
+                     stitch: (seam.type!=='fold' && seam.stitch && seam.stitch.shared)
+                       ? { shared:true, spacing: (typeof seam.stitch.spacing==='number' && seam.stitch.spacing>0 ? seam.stitch.spacing : null) } : null };
       // Tier-1 problems (flat / geometric — no folding needed):
       if (dangling.length)
         problems.push({ seam:sObj.id, kind:'dangling', msg:`"${sObj.name}": ${dangling.length} edge${dangling.length>1?'s':''} no longer resolve (deleted piece/edge)` });

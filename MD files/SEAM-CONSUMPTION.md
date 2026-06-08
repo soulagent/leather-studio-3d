@@ -192,4 +192,30 @@ No app-version gate — the consumer reads the optional fields and falls back to
 
 ---
 
-_Consumes `Leather Stuff/MD files/SEAM-MODEL.md` schema v15 (assembly-schema v2), read-only. Keep both in sync._
+## 10. Shared stitch across stacked pieces (U7, assembly-schema v3, 2026-06-09)
+
+A stitch seam may carry `stitch:{shared:true, spacing?}` — one hole layout shared by all members so a
+single running stitch sews the whole stack. Consumption:
+
+- `buildAssembly` carries `seam.stitch` onto the resolved seam object. **It now runs BEFORE the
+  per-piece build/stitch loop** in `loadPattern` (it used to run after, which left shared-stitch holes
+  empty because `collectStitches` saw no assembly yet).
+- `seamStitchSegments3D(sh)` — for each shared-stitch seam this shape belongs to, `N =
+  max(1, round(polyLength(ref.poly)/spacing))` from the first resolved member; each member's (already
+  `clipPolyByT`-clipped, `reversed`-applied) polyline is `resampleByArcLength(poly, N)` → the **same
+  N+1 points** every member gets. That's the exact pairing the seam **connectors** already use, so the
+  holes coincide once `align2D` pins the member edges together in stacked/assembled mode. Each hole gets
+  a tangent angle `a` + the piece's top-face `yTop`; consecutive holes in a run become threads.
+- `edgeStitched(sh,e)` returns false for seam-owned edges (via `sharedSeamForEdge3D`), so the
+  independent per-edge stitch is overridden, not doubled. `collectStitches` no longer bails on
+  `!hasStitch` — a piece with only seam-driven holes still stitches.
+
+Smoke: the `sharedstitch` feature asserts the carried flag, the edge override, equal hole counts across
+members (coincide), `round(len/spacing)+1`, and per-run threads. Verified visually (`tests/_shot.ps1`):
+one continuous saddle stitch along the seam through the stacked pieces ("42 stitch holes · 1 seam").
+
+No app-version gate — absent `stitch` = independent per-edge stitching (v1/v2 behaviour).
+
+---
+
+_Consumes `Leather Stuff/MD files/SEAM-MODEL.md` schema v15 (assembly-schema v3), read-only. Keep both in sync._

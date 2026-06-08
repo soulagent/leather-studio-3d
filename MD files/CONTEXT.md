@@ -1,5 +1,5 @@
 # Leather Studio 3D — Session Context
-_Last updated: 2026-06-09 · Current version: v0.0.8 · Reads .lpd (Pattern Designer save format v15, assembly-schema v2; seams/folds + partial joins consumed)_
+_Last updated: 2026-06-09 · Current version: v0.0.9 · Reads .lpd (Pattern Designer save format v15, assembly-schema v3; seams/folds + partial joins + shared stitch consumed)_
 
 ---
 

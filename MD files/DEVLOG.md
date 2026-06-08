@@ -5,6 +5,29 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.9 — U7: shared stitch across stacked pieces (2026-06-09)
+
+Cross-app with the Pattern Designer's v0.8.6 (assembly-schema **v3**). A stitch seam may carry
+`stitch:{shared:true, spacing?}` — one hole layout shared by every member so a single running stitch
+sews the whole stack (no more independently-stitched edges whose holes don't line up).
+
+- **`buildAssembly` carries `seam.stitch`** onto the resolved seam, and **now runs BEFORE the per-piece
+  build/stitch loop** in `loadPattern` (it used to run after — which left shared-stitch holes empty
+  because `collectStitches` saw no assembly yet). This was the one ordering bug; found via headless render.
+- **`seamStitchSegments3D(sh)`** — `N = round(polyLength(ref.poly)/spacing)` from the first resolved
+  member; each member's (clipped/reversed) polyline is `resampleByArcLength(poly, N)` → the same N+1
+  points every member gets (the exact pairing the seam connectors already use), so holes coincide once
+  `align2D` pins the edges together. Holes carry a tangent angle + the piece top-face y; consecutive
+  holes in a run become threads.
+- **`edgeStitched` skips seam-owned edges** (`sharedSeamForEdge3D`); `collectStitches` no longer bails
+  on `!hasStitch`, so a piece with only seam-driven holes still stitches.
+
+Verified visually (`tests/_shot.ps1`, `tests/_u7_demo.lpd`): one continuous saddle stitch along the
+seam through the stacked pieces ("42 stitch holes · 1 seam"). New `sharedstitch` smoke feature (8);
+app smoke **117 → 125**; build smoke 36/36. Contract: `MD files/SEAM-CONSUMPTION.md` §10.
+
+---
+
 ## v0.0.8 — stitch slant now follows the seam line (card-holder feedback) (2026-06-09)
 
 User flagged that the saddle-stitch threads didn't follow the drawn (red) seam line — they read as a
