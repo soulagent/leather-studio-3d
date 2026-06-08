@@ -216,11 +216,12 @@ window.__SMOKE__ = function (spec) {
         },
       }, 'stack');
 
+      const isIdent = m => m.elements.every((v, i) => Math.abs(v - (i % 5 === 0 ? 1 : 0)) < 1e-9);
       assert('two piece groups built', S.pieceGroups.size === 2);
-      // flat: every piece group at identity (raw 2D layout)
+      // flat: every piece group's matrix is identity (raw 2D layout)
       setAssemblyMode('flat');
       const g2 = S.pieceGroups.get(2).group;
-      assert('flat: moving piece at identity', g2.position.length() < 1e-9 && Math.abs(g2.rotation.y) < 1e-9);
+      assert('flat: moving piece at identity', isIdent(g2.matrix));
 
       // stacked: piece 2 (higher layer index) snaps onto piece 1, lifted by piece1 thickness
       setAssemblyMode('stacked');
@@ -228,7 +229,7 @@ window.__SMOKE__ = function (spec) {
       assert('stacked: moving piece got a non-identity pose',
         !!xf2 && (Math.abs(xf2.tx) > 1e-6 || Math.abs(xf2.ty) > 1e-6 || Math.abs(xf2.theta) > 1e-6));
       assertNear('stacked: lifted by reference thickness (3mm)', xf2.dy, 3, 1e-6);
-      assertNear('stacked: group Y = stack height', S.pieceGroups.get(2).group.position.y, 3, 1e-6);
+      assertNear('stacked: group matrix Y = stack height', S.pieceGroups.get(2).group.matrix.elements[13], 3, 1e-6);
       assert('stacked: reference piece (lower layer) unmoved', S.pieceXf.get(1).dy === 0);
       // mated edge endpoints coincide after the transform
       const refEdge = sampleEdge(S.lastData.shapes[0], 1);   // rect1 edge 1: (100,0)->(100,80)
@@ -240,10 +241,45 @@ window.__SMOKE__ = function (spec) {
 
       // toggle back to flat → identity restored
       setAssemblyMode('flat');
-      assert('flat again: identity restored', S.pieceGroups.get(2).group.position.length() < 1e-9);
+      assert('flat again: identity restored', isIdent(S.pieceGroups.get(2).group.matrix));
 
       clearScene();
       assert('clearScene clears piece groups', S.pieceGroups.size === 0);
+    },
+
+    // --- S3: hinge/fold dihedral via forward kinematics over the seam tree ---
+    fold() {
+      const rect = (id, x) => ({ id, type: 'rect', x, y: 0, w: 100, h: 80, thickness: 2 });
+      loadPattern({ shapes: [rect(1, 0), rect(2, 400)],
+        assembly: { version: 1, seams: [{ id: 1, name: 'hinge', members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 3 }] }], folds: [] } }, 'fold');
+      S.foldAngle = 90;
+      const matClose = (a, b) => { for (let i = 0; i < 16; i++) if (Math.abs(a.elements[i] - b.elements[i]) > 1e-6) return false; return true; };
+
+      assert('fold: hinge tree records the child + parent', S.pieceTree.has(2) && S.pieceTree.get(2).parent === 1);
+      const pose2 = poseMatrix(2);
+      const W0 = computeAssembledMatrices(0).get(2);
+      const W1 = computeAssembledMatrices(1).get(2);
+      assert('fold: t=0 reproduces the stacked pose', matClose(W0, pose2));
+      assert('fold: t=1 actually folds the child', !matClose(W1, pose2));
+
+      // the mated (hinge) edge is invariant across the fold; the far edge swings out of plane
+      const onHinge = new THREE.Vector3(400, 0, -40);   // child mated-edge midpoint, at the base (on the axis)
+      const h0 = onHinge.clone().applyMatrix4(W0), h1 = onHinge.clone().applyMatrix4(W1);
+      assert('fold: hinge edge stays put through the fold', h0.distanceTo(h1) < 1e-3, `d=${h0.distanceTo(h1).toFixed(4)}`);
+      const far = new THREE.Vector3(500, 0, -40);        // child far-edge midpoint (100mm from the hinge)
+      const f0 = far.clone().applyMatrix4(W0), f1 = far.clone().applyMatrix4(W1);
+      assert('fold: far edge swings well out of plane', f1.distanceTo(f0) > 50 && Math.abs(f1.y - f0.y) > 50, `dist=${f1.distanceTo(f0).toFixed(1)} dy=${(f1.y-f0.y).toFixed(1)}`);
+
+      // mode plumbing + assemble slider drive the live group matrices
+      setAssemblyMode('assembled'); setAssembleT(1);
+      assert('assembled mode active', S.assemblyMode === 'assembled');
+      assert('assembled: child group matrix is folded', !matClose(S.pieceGroups.get(2).group.matrix, pose2));
+      setAssembleT(0);
+      assert('assemble t=0: child returns to the stacked pose', matClose(S.pieceGroups.get(2).group.matrix, pose2));
+      assert('assembled: root piece stays put', matClose(S.pieceGroups.get(1).group.matrix, poseMatrix(1)));
+
+      setAssemblyMode('flat');
+      clearScene();
     },
 
     // --- S2: whole seam-graph positioning from a root (chain / N-way / cycle) ---
@@ -314,7 +350,7 @@ window.__SMOKE__ = function (spec) {
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'assembly', 'stacking', 'graph', 'a11y'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'assembly', 'stacking', 'graph', 'fold', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {

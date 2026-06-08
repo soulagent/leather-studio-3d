@@ -295,7 +295,14 @@
             <div class="seg" role="group" aria-label="Layout mode">
               <button type="button" id="asm-flat" class="seg-btn">Flat</button>
               <button type="button" id="asm-stacked" class="seg-btn">Stacked</button>
+              <button type="button" id="asm-assembled" class="seg-btn">Assembled</button>
             </div>
+          </div>
+          <div class="p-field" id="asm-assemble-row" style="display:none">
+            <span class="p-lbl">Assemble</span><input type="range" id="asmT" min="0" max="100" step="1" value="100"><span class="p-val" id="asmTV">100%</span>
+          </div>
+          <div class="p-field" id="asm-angle-row" style="display:none">
+            <span class="p-lbl">Fold angle</span><input type="range" id="asmAngle" min="0" max="180" step="5" value="90"><span class="p-val" id="asmAngleV">90&deg;</span>
           </div>
           <div class="p-note" id="asm-summary" style="margin-bottom:6px"></div>
           <div id="asm-problems"></div>
@@ -366,10 +373,13 @@
     seamMeshes:[],             // seam connector + fold-crease overlays (disposed in clearScene)
     problems:[],               // derived Tier-1 issues (length-mismatch / dangling / incomplete)
     showSeams:true,            // seam/fold overlay visibility
-    assemblyMode:'flat',       // 'flat' = raw 2D layout · 'stacked' = snap+stack from seams (S1)
+    assemblyMode:'flat',       // 'flat' = raw 2D layout · 'stacked' = snap+stack · 'assembled' = folded (S3)
     pieceGroups:new Map(),     // shape id -> {group, shape, thickness} (each piece is its own group)
-    pieceXf:new Map(),         // shape id -> {theta,tx,ty,dy} in-plane pose for stacked mode
+    pieceXf:new Map(),         // shape id -> {theta,tx,ty,dy} in-plane stacked pose (S1/S2)
+    pieceTree:new Map(),       // child id -> {parent, axisA, axisB, hingeY} hinge over the seam tree (S3)
     threadMeshes:[],           // per-piece thread meshes (for live colour change)
+    assembleT:1,               // 0..1 Flat↔Assembled fold amount (the assemble slider)
+    foldAngle:90,              // target dihedral (deg) applied to every seam hinge when assembled
   };
 
   // Stitch defaults from the loaded .lpd's settings (per-shape values override these).
@@ -390,7 +400,7 @@
   const PREFS_KEY = 'ls3d-prefs';
   (function restorePrefs(){
     let p; try { p = JSON.parse(lsGet(PREFS_KEY)) || {}; } catch { p = {}; }
-    for (const k of ['leather','stitch','roughness','thickness','keyLight','ambient','showGrid','showStitches','wireframe','showSeams','assemblyMode'])
+    for (const k of ['leather','stitch','roughness','thickness','keyLight','ambient','showGrid','showStitches','wireframe','showSeams','assemblyMode','assembleT','foldAngle'])
       if (p[k] != null) S[k] = p[k];
   })();
   function savePrefs(){
@@ -400,7 +410,7 @@
       roughness:S.roughness, thickness:S.thickness,
       keyLight:S.keyLight, ambient:S.ambient,
       showGrid:S.showGrid, showStitches:S.showStitches, wireframe:S.wireframe, showSeams:S.showSeams,
-      assemblyMode:S.assemblyMode,
+      assemblyMode:S.assemblyMode, assembleT:S.assembleT, foldAngle:S.foldAngle,
     }));
   }
 
@@ -781,6 +791,7 @@
     shapes.forEach((sh, idx) => {
       if (sh.hidden) return;
       const pg = new THREE.Group();
+      pg.matrixAutoUpdate = false;   // posed explicitly via group.matrix (stack/fold)
       const poly = outlinePolygon(sh);
       if (poly && poly.length >= 3){
         const geo = new THREE.ExtrudeGeometry(shapeFromPolygon(poly), { depth:pieceThickness(sh), bevelEnabled:false });
@@ -966,7 +977,7 @@
   // their residual gap is measured + flagged (Tier-2), per the "preview the problem" goal.
   const GAP_TOL = 1.0; // mm — residual seam gap that counts as "doesn't meet in the assembly"
   function computePieceTransforms(){
-    S.pieceXf = new Map();
+    S.pieceXf = new Map(); S.pieceTree = new Map();
     for (const id of S.pieceGroups.keys()) S.pieceXf.set(id, { ...IDENT_XF });
     if (!S.assembly) return;
     const shapes = Array.isArray(S.lastData?.shapes) ? S.lastData.shapes : [];
@@ -1004,6 +1015,10 @@
             else      for(let t=j;t<pi;t++) dy-=thick(ordered[t].shape);
             const xf = align2D(pm.poly, m.poly, pXf); xf.dy = dy;
             S.pieceXf.set(m.shape, xf); visited.add(m.shape); remaining.delete(m.shape);
+            // Hinge for assembled mode: child folds about its PARENT's shared edge (the seam line),
+            // expressed in the parent's local geometry frame, at the parent's top face.
+            const a0=pm.poly[0], a1=pm.poly[pm.poly.length-1];
+            S.pieceTree.set(m.shape, { parent:p, axisA:{x:a0.x, z:-a0.y}, axisB:{x:a1.x, z:-a1.y}, hingeY:thick(p) });
             queue.push(m.shape);
           }
         }
@@ -1031,19 +1046,53 @@
         S.problems.push({ seam:seam.id, kind:'gap', msg:`"${seam.name}": edges don't meet in the assembly (gap ${maxGap.toFixed(1)} mm) — a closed loop that won't lie flat` });
     }
   }
-  // Pose each piece group for the active mode (stacked = computed pose, flat = identity).
-  function applyPieceTransforms(){
-    const stacked = S.assemblyMode === 'stacked';
-    for (const [id, w] of S.pieceGroups){
-      const xf = stacked ? (S.pieceXf.get(id) || IDENT_XF) : IDENT_XF;
-      w.group.rotation.set(0, xf.theta, 0);
-      w.group.position.set(xf.tx, xf.dy||0, -xf.ty);
-    }
+  // ── Matrix posing + forward-kinematics fold (S3) ──────────────────────────
+  // Stacked pose of a piece as a 4x4 (in-plane rotation + translation/lift).
+  function poseMatrix(id){
+    const xf = S.pieceXf.get(id) || IDENT_XF;
+    return new THREE.Matrix4().makeTranslation(xf.tx, xf.dy||0, -xf.ty)
+      .multiply(new THREE.Matrix4().makeRotationY(xf.theta));
   }
-  function pieceXfFor(id){ return (S.assemblyMode==='stacked' && S.pieceXf.get(id)) || IDENT_XF; }
-  // Switch Flat <-> Stacked: re-pose pieces, rebuild overlays at the new positions, recentre.
+  // Assembled world matrix per piece: forward kinematics down the seam tree. Each child folds
+  // about its parent's shared edge (the hinge) by foldAngle·t, carrying its whole subtree.
+  // t=0 reproduces the stacked layout exactly (every hinge identity).
+  function computeAssembledMatrices(t){
+    const world = new Map();
+    const childrenOf = new Map();
+    for (const [c, info] of S.pieceTree){ if(!childrenOf.has(info.parent)) childrenOf.set(info.parent, []); childrenOf.get(info.parent).push(c); }
+    const angle = THREE.MathUtils.degToRad(S.foldAngle) * t;
+    const stack = [];
+    for (const id of S.pieceGroups.keys()) if(!S.pieceTree.has(id)){ world.set(id, poseMatrix(id)); stack.push(id); }
+    while (stack.length){
+      const p = stack.pop(), Wp = world.get(p);
+      for (const c of childrenOf.get(p)||[]){
+        const info = S.pieceTree.get(c);
+        const A = new THREE.Vector3(info.axisA.x, info.hingeY, info.axisA.z);
+        const dir = new THREE.Vector3(info.axisB.x-info.axisA.x, 0, info.axisB.z-info.axisA.z).normalize();
+        const H = new THREE.Matrix4().makeTranslation(A.x,A.y,A.z)
+          .multiply(new THREE.Matrix4().makeRotationAxis(dir, angle))
+          .multiply(new THREE.Matrix4().makeTranslation(-A.x,-A.y,-A.z));
+        const rel = new THREE.Matrix4().multiplyMatrices(poseMatrix(p).clone().invert(), poseMatrix(c));
+        world.set(c, new THREE.Matrix4().multiplyMatrices(Wp, H.multiply(rel)));
+        stack.push(c);
+      }
+    }
+    return world;
+  }
+  // Pose each piece group's matrix for the active mode. flat = identity (raw layout),
+  // stacked = FK at t=0, assembled = FK at the assemble slider amount.
+  function applyPieceTransforms(){
+    if (S.assemblyMode === 'flat'){
+      for (const [,w] of S.pieceGroups){ w.group.matrix.identity(); w.group.matrixWorldNeedsUpdate = true; }
+      return;
+    }
+    const t = S.assemblyMode === 'assembled' ? S.assembleT : 0;
+    const world = computeAssembledMatrices(t);
+    for (const [id, w] of S.pieceGroups){ w.group.matrix.copy(world.get(id) || poseMatrix(id)); w.group.matrixWorldNeedsUpdate = true; }
+  }
+  // Switch Flat / Stacked / Assembled: re-pose pieces, rebuild overlays, recentre.
   function setAssemblyMode(mode){
-    if (mode!=='flat' && mode!=='stacked') return;
+    if (mode!=='flat' && mode!=='stacked' && mode!=='assembled') return;
     S.assemblyMode = mode;
     applyPieceTransforms();
     refreshSeamOverlays();
@@ -1051,6 +1100,10 @@
     renderAssemblyPanel();
     savePrefs();
   }
+  // Live updates while dragging the assemble slider / changing the fold angle (no recentre — the
+  // model would jump around mid-drag; recentre only happens on a mode switch).
+  function setAssembleT(t){ S.assembleT = Math.max(0, Math.min(1, t)); if(S.assemblyMode==='assembled'){ applyPieceTransforms(); refreshSeamOverlays(); } renderAssemblyPanel(); savePrefs(); }
+  function setFoldAngle(deg){ S.foldAngle = Math.max(0, Math.min(180, deg)); if(S.assemblyMode==='assembled'){ applyPieceTransforms(); refreshSeamOverlays(); } renderAssemblyPanel(); savePrefs(); }
   function refreshSeamOverlays(){
     for (const m of S.seamMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
     S.seamMeshes = [];
@@ -1063,8 +1116,10 @@
   const SEAM_RIBBON_K = 8;
   function buildSeamOverlays(){
     if (!S.assembly) return;
-    const memberToW = m => { const xf=pieceXfFor(m.shape), top=(xf.dy||0)+pieceThickness(m.sh)+0.4;
-      return p => { const q=applyXf2D(xf, p); return new THREE.Vector3(q.x, top, -q.y); }; };
+    // Map an edge point through its owning piece group's current matrix, so overlays follow the
+    // piece in every mode (raw / stacked / folded). The +0.4 lifts the line just off the face.
+    const memberToW = m => { const g=S.pieceGroups.get(m.shape)?.group, M=g?g.matrix:new THREE.Matrix4(), top=pieceThickness(m.sh)+0.4;
+      return p => new THREE.Vector3(p.x, top, -p.y).applyMatrix4(M); };
     const badSeams = new Set(S.problems.filter(p => p.kind==='length' || p.kind==='dangling' || p.kind==='gap').map(p => p.seam));
     // Seam connectors
     for (const seam of S.assembly.seams){
@@ -1108,9 +1163,17 @@
     if(lrow){
       const canStack = !!(A && A.graph.arcs.length);
       lrow.style.display = canStack ? '' : 'none';
-      const fb=document.getElementById('asm-flat'), sb=document.getElementById('asm-stacked');
-      if(fb&&sb){ fb.classList.toggle('on', S.assemblyMode==='flat'); sb.classList.toggle('on', S.assemblyMode==='stacked');
-        fb.setAttribute('aria-pressed', S.assemblyMode==='flat'); sb.setAttribute('aria-pressed', S.assemblyMode==='stacked'); }
+      [['asm-flat','flat'],['asm-stacked','stacked'],['asm-assembled','assembled']].forEach(([bid,m])=>{
+        const b=document.getElementById(bid); if(b){ b.classList.toggle('on', S.assemblyMode===m); b.setAttribute('aria-pressed', S.assemblyMode===m); }
+      });
+      const asmRow=document.getElementById('asm-assemble-row'), angRow=document.getElementById('asm-angle-row');
+      const showFold = canStack && S.assemblyMode==='assembled';
+      if(asmRow) asmRow.style.display = showFold ? '' : 'none';
+      if(angRow) angRow.style.display = showFold ? '' : 'none';
+      const tS=document.getElementById('asmT'), tV=document.getElementById('asmTV');
+      if(tS){ tS.value=Math.round(S.assembleT*100); } if(tV){ tV.textContent=Math.round(S.assembleT*100)+'%'; }
+      const aS=document.getElementById('asmAngle'), aV=document.getElementById('asmAngleV');
+      if(aS){ aS.value=S.foldAngle; } if(aV){ aV.textContent=S.foldAngle+'°'; }
     }
     const list=document.getElementById('asm-problems');
     if(list){
@@ -1127,6 +1190,7 @@
   // Centre the loaded pattern over the origin so the camera framing is sane.
   function recentrePattern(){
     if (!patternGroup.children.length) return;
+    patternGroup.updateMatrixWorld(true);   // piece groups are matrixAutoUpdate=false → force refresh
     const box = new THREE.Box3().setFromObject(patternGroup);
     const c = box.getCenter(new THREE.Vector3());
     patternGroup.position.set(-c.x, patternGroup.position.y, -c.z);
@@ -1139,7 +1203,7 @@
     for (const w of S.pieceGroups.values()) patternGroup.remove(w.group);
     S.panelMeshes = []; S.stitchMeshes = []; S.threadMeshes = [];
     S.seamMeshes = []; S.assembly = null; S.problems = [];
-    S.pieceGroups = new Map(); S.pieceXf = new Map();
+    S.pieceGroups = new Map(); S.pieceXf = new Map(); S.pieceTree = new Map();
     patternGroup.position.set(0,0,0);
     S.docName = null; S.lastData = null; S.lastName = null;
     document.getElementById('empty-hint').style.display = '';
@@ -1413,6 +1477,9 @@
   $('ckSeams').onchange = ()=>{ S.showSeams=$('ckSeams').checked; applySeam(); savePrefs(); };
   $('asm-flat').onclick = ()=> setAssemblyMode('flat');
   $('asm-stacked').onclick = ()=> setAssemblyMode('stacked');
+  $('asm-assembled').onclick = ()=> setAssemblyMode('assembled');
+  $('asmT').oninput = ()=>{ $('asmTV').textContent = $('asmT').value+'%'; setAssembleT(parseFloat($('asmT').value)/100); };
+  $('asmAngle').oninput = ()=>{ $('asmAngleV').textContent = $('asmAngle').value+'°'; setFoldAngle(parseFloat($('asmAngle').value)); };
 
   // Push restored S values into the controls + scene at startup (idempotent —
   // with no saved prefs these equal the HTML defaults).

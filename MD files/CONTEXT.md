@@ -143,9 +143,14 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
   the most-connected root: every reachable piece snaps onto its parent and stacks by global layer
   order (cumulative thickness), handling **N-way spines** (3+ on a seam) and multi-seam pieces; the
   traversal is a spanning tree and cycles are **flagged not forced** — `computeSeamGaps` raises a
-  **Tier-2 'gap'** problem where mated edges don't coincide. A Flat/Stacked toggle (`setAssemblyMode`)
-  re-poses pieces + rebuilds overlays. Still **no folding** — hinge/fold (dihedral bend, assemble
-  animation/slider) is S3. Folding remains 2D→3D-ill-posed in general; tractable path =
+  **Tier-2 'gap'** problem where mated edges don't coincide. **S3 adds folding** (Phase 2b): each piece
+  group is matrix-driven (`poseMatrix`); `computeAssembledMatrices(t)` does forward kinematics down the
+  seam tree (`S.pieceTree`) — each child folds about its parent's shared edge by `foldAngle·t`, carrying
+  its subtree (`Wc = Wp·Hinge·rel`, t=0 == stacked). A **Flat/Stacked/Assembled** toggle + an
+  **Assemble** slider (`S.assembleT`) and **Fold angle** (`S.foldAngle`) drive it; overlays map through
+  each group's matrix so they bend too. **Deferred:** per-crease (`fold.angle`) bending needs panel
+  splitting; closed-loop closure stays Phase-2c (template-first). Folding remains 2D→3D-ill-posed in
+  general; tractable path =
   hinge tree for tree-structured goods, parametric catalogue for closed loops. Consume `assembly`
   **read-only**; absent `assembly` (any pre-v15 file) → flat viewer unchanged.
 

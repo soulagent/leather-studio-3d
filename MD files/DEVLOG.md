@@ -5,6 +5,34 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## (unreleased) — S3: hinge/fold dihedral — assembled preview (Phase 2b) (2026-06-08)
+
+Fourth step of the 3D auto-stacking stream. **Code + smoke only — still v0.0.4; ships at S4.**
+The actual **assembled-product preview**: pieces fold up about their seams into 3D.
+
+- **Matrix-based posing** — each piece group is now `matrixAutoUpdate=false` and driven by an explicit
+  `THREE.Matrix4`. `poseMatrix(id)` builds the S1/S2 stacked pose as a matrix.
+- **Forward kinematics over the seam tree** — `computeAssembledMatrices(t)` walks the spanning tree
+  recorded by `computePieceTransforms` (`S.pieceTree`: child → {parent, hinge axis, hingeY}). Each
+  child folds about its **parent's shared seam edge** (the hinge line, at the parent's top face) by
+  `foldAngle·t`, carrying its whole subtree: `Wchild = Wparent · Hinge(axis, angle) · rel`, where
+  `rel = pose(parent)⁻¹·pose(child)`. **t=0 reproduces the stacked layout exactly**, so the three
+  modes share one path.
+- **Flat / Stacked / Assembled** — the Layout control gains an **Assembled** option;
+  `S.assemblyMode` now three-valued. In Assembled, an **Assemble slider** (`S.assembleT` 0–100%)
+  animates flat→folded, and a **Fold angle** slider (`S.foldAngle`, default 90°) sets the target
+  dihedral applied to every seam hinge. `setAssembleT`/`setFoldAngle` update live without recentring.
+- **Overlays follow the fold** — `buildSeamOverlays` now maps edge points through each piece group's
+  current matrix, so connectors + fold creases bend with their pieces in every mode.
+- **Deferred** — per-crease (intra-piece `fold.angle`) bending needs panel-splitting at the crease →
+  later; closed-loop/cycle closure stays Phase-2c (template-first). Creases still render.
+- **Smoke** — new `fold` feature (9 asserts: hinge tree recorded; FK t=0 == stacked pose; t=1 folds;
+  the hinge edge is invariant through the fold (<1e-3 mm) while the far edge swings >50 mm out of
+  plane; assemble slider + mode plumbing drive the live group matrices; root stays put). App suite
+  **79 → 88**; build smoke **36/36**.
+
+---
+
 ## (unreleased) — S2: whole seam-graph positioning from a root (2026-06-08)
 
 Third step of the 3D auto-stacking stream. **Code + smoke only — still v0.0.4, no release.**
