@@ -162,4 +162,34 @@ common tree-structured goods. Treat **2c** as template-first and gate on demand.
 
 ---
 
-_Consumes `Leather Stuff/MD files/SEAM-MODEL.md` schema v15, read-only. Keep both in sync._
+---
+
+## 9. Partial / unequal-length seams (U6, assembly-schema v2, 2026-06-08)
+
+The v1 consumer assumed mated members were the **whole edge** and **equal length** (`align2D` mated
+endpoints start↔start/end↔end; any length delta raised a Tier-1 *length* problem). v2 adds intentional
+**partial** joins — a T-pocket joining only part of a side, a short front pocket sewn to a long back.
+
+What the consumer now does (all in `buildAssembly` / `computePieceTransforms` / `computeSeamGaps`):
+
+- **Member sub-span.** A member may carry `t0`,`t1` ∈ [0,1] (fractions of arc length). `clipPolyByT`
+  clips the sampled edge polyline to that slice before length/align/hinge use it. Absent = whole edge.
+- **`fit:"partial"` relaxes Tier-1.** When a seam is `fit:"partial"`, the **length-mismatch** check is
+  skipped (the inequality is intended). Dangling/incomplete checks still apply.
+- **Anchored alignment.** `align2D(ref, mov, refXf, anchor)` takes the seam's `anchor` (`"start"` |
+  `"end"`). It always matches direction via the chords, but coincides the chosen endpoint — so a short
+  span sits flush at that end of the longer one instead of being stretched across it. Full equal edges
+  overlap exactly regardless of anchor (back-compatible).
+- **Tier-2 gap skipped for partial.** `computeSeamGaps` skips `fit:"partial"` seams (like it already
+  skips length-mismatched ones): a point-for-point resampled compare of unequal spans would overstate
+  the gap. The hinge axis for assembled mode uses the clipped span endpoints, so folds about the joined
+  portion only.
+
+Smoke: the `partialseams` feature covers `clipPolyByT`, the suppressed length flag (vs a full-join
+control that still flags), and `align2D` start/end anchoring.
+
+No app-version gate — the consumer reads the optional fields and falls back to v1 behaviour when absent.
+
+---
+
+_Consumes `Leather Stuff/MD files/SEAM-MODEL.md` schema v15 (assembly-schema v2), read-only. Keep both in sync._

@@ -5,6 +5,26 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.7 — card-holder feedback U6: partial / unequal-length seams (2026-06-08)
+
+Cross-app with the Pattern Designer's v0.8.4 (assembly-schema **v2**). The viewer can now consume
+**partial joins** — a member that uses only a sub-span of its edge, and seams whose mated edges are
+intentionally unequal (a T-pocket on part of a side; a short front pocket on a tall back). Built
+**indigo-wren-V7**. App smoke **113 → … (partialseams feature)**; build smoke 36/36.
+
+- **Member sub-span.** A member may carry `t0`/`t1` ∈ [0,1] (fractions of arc length). `clipPolyByT`
+  clips the sampled edge polyline to that slice before any length/align/hinge use. Absent = whole edge.
+- **`fit:"partial"` relaxes the rules.** `buildAssembly` skips the Tier-1 **length-mismatch** flag for
+  partial seams (the inequality is intended); `computeSeamGaps` skips them for Tier-2 too (a resampled
+  point-for-point compare of unequal spans would overstate the gap).
+- **Anchored alignment.** `align2D(ref, mov, refXf, anchor)` now takes the seam's `anchor`
+  (`"start"`|`"end"`): direction is matched via the chords as before, but the chosen endpoint is the
+  one that coincides — so a short span sits flush at that end instead of being stretched across.
+- **Smoke:** new `partialseams` feature — `clipPolyByT`, the suppressed length flag (vs a full-join
+  control that still flags), and `align2D` start/end anchoring. Contract: `SEAM-CONSUMPTION.md` §9.
+
+---
+
 ## v0.0.6 — card-holder feedback U1–U5: UI sync, 1 mm default, camera, stitch realism (2026-06-08)
 
 First slice of the card-holder testing feedback batch (U1–U7): the three **3D quick wins** (U1–U3)

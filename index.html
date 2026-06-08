@@ -366,7 +366,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.6';
+  const APP_VERSION = 'v0.0.7';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -769,6 +769,22 @@
   function polyLength(poly){
     let L=0; for(let i=1;i<poly.length;i++) L+=Math.hypot(poly[i].x-poly[i-1].x, poly[i].y-poly[i-1].y); return L;
   }
+  // U6: clip a polyline to the sub-span [t0,t1] (fractions of arc length) for partial seam
+  // members. Whole-edge (0..1) returns the input unchanged. Keeps interior vertices in range.
+  function clipPolyByT(poly, t0, t1){
+    if(!poly || poly.length<2) return poly;
+    const lo=Math.max(0,Math.min(1, t0==null?0:t0)), hi=Math.max(0,Math.min(1, t1==null?1:t1));
+    if(lo<=1e-4 && hi>=1-1e-4) return poly;
+    const cum=[0]; for(let i=1;i<poly.length;i++) cum.push(cum[i-1]+Math.hypot(poly[i].x-poly[i-1].x, poly[i].y-poly[i-1].y));
+    const total=cum[cum.length-1]; if(total<1e-6) return poly;
+    const at=d=>{ d=Math.max(0,Math.min(total,d)); let i=1; while(i<poly.length && cum[i]<d) i++;
+      const a=poly[i-1], b=poly[Math.min(i,poly.length-1)], seg=(cum[Math.min(i,poly.length-1)]-cum[i-1])||1, f=(d-cum[i-1])/seg;
+      return { x:a.x+(b.x-a.x)*f, y:a.y+(b.y-a.y)*f }; };
+    const dLo=lo*total, dHi=hi*total, out=[at(dLo)];
+    for(let i=0;i<poly.length;i++) if(cum[i]>dLo+1e-6 && cum[i]<dHi-1e-6) out.push(poly[i]);
+    out.push(at(dHi));
+    return out;
+  }
   // Resample a polyline to K+1 points evenly spaced by arc length (for seam
   // connectors that pair corresponding points between two member edges).
   function resampleByArcLength(poly, K){
@@ -966,10 +982,12 @@
     const byId = new Map(shapes.map(s => [s.id, s]));
     const problems = [];
     const seams = (Array.isArray(A.seams) ? A.seams : []).map(seam => {
+      const partial = seam.fit === 'partial';                       // U6 — intentional unequal/sub-span join
       const members = (seam.members || []).map(m => {
         const sh = byId.get(m.shape);
         const renderable = sh && !sh.hidden;
         let poly = renderable ? sampleEdge(sh, m.edge) : null;
+        if (poly && (m.t0 != null || m.t1 != null)) poly = clipPolyByT(poly, m.t0, m.t1);  // U6 sub-span
         if (poly && m.reversed) poly = poly.slice().reverse();
         return { shape:m.shape, edge:m.edge, sh, poly, len: poly?polyLength(poly):0,
                  resolved: !!poly, hidden: !!(sh && sh.hidden), missing: !sh };
@@ -977,13 +995,14 @@
       const resolved = members.filter(m => m.resolved);
       const dangling = members.filter(m => !m.resolved && !m.hidden);
       const sObj = { id:seam.id, name:seam.name||('seam '+seam.id), type:seam.type||'stitch',
-                     order: seam.order ?? null, members, resolved };
+                     order: seam.order ?? null, fit: partial?'partial':'full',
+                     anchor: seam.anchor==='end'?'end':'start', members, resolved };
       // Tier-1 problems (flat / geometric — no folding needed):
       if (dangling.length)
         problems.push({ seam:sObj.id, kind:'dangling', msg:`"${sObj.name}": ${dangling.length} edge${dangling.length>1?'s':''} no longer resolve (deleted piece/edge)` });
       if (resolved.length < 2)
         problems.push({ seam:sObj.id, kind:'incomplete', msg:`"${sObj.name}": needs 2+ joined edges (has ${resolved.length})` });
-      else {
+      else if (!partial) {   // U6: a partial join is intentionally unequal — don't flag the mismatch
         const lens = resolved.map(m => m.len), mn=Math.min(...lens), mx=Math.max(...lens);
         if (mx - mn > SEAM_LEN_TOL){ sObj.lengthMismatch = true;
           problems.push({ seam:sObj.id, kind:'length', msg:`"${sObj.name}": edges differ in length (${mn.toFixed(1)}–${mx.toFixed(1)} mm) — won't sew evenly` });
@@ -1011,12 +1030,16 @@
   function applyXf2D(xf, p){ const c=Math.cos(xf.theta), s=Math.sin(xf.theta); return { x:c*p.x - s*p.y + xf.tx, y:s*p.x + c*p.y + xf.ty }; }
   // Rigid transform that maps `movPoly`'s edge endpoints onto `refPoly`'s, with the
   // reference's own pose (refXf) already applied. Endpoints match start↔start / end↔end.
-  function align2D(refPoly, movPoly, refXf){
+  // anchor='end' lines the spans up at their LAST points (U6 partial join anchored at the far end);
+  // default 'start' coincides the first points. Direction is always matched via the chords, so equal-
+  // length full edges overlap exactly either way — the anchor only matters when the spans differ.
+  function align2D(refPoly, movPoly, refXf, anchor){
     const RA0=applyXf2D(refXf, refPoly[0]), RA1=applyXf2D(refXf, refPoly[refPoly.length-1]);
     const MB0=movPoly[0], MB1=movPoly[movPoly.length-1];
     const theta=Math.atan2(RA1.y-RA0.y, RA1.x-RA0.x) - Math.atan2(MB1.y-MB0.y, MB1.x-MB0.x);
     const c=Math.cos(theta), s=Math.sin(theta);
-    return { theta, tx: RA0.x-(c*MB0.x - s*MB0.y), ty: RA0.y-(s*MB0.x + c*MB0.y), dy:0 };
+    const Rp = anchor==='end' ? RA1 : RA0, Mp = anchor==='end' ? MB1 : MB0;
+    return { theta, tx: Rp.x-(c*Mp.x - s*Mp.y), ty: Rp.y-(s*Mp.x + c*Mp.y), dy:0 };
   }
   // S2 — whole seam-graph positioning. BFS from a root (most-connected) piece over the
   // seam adjacency: each newly reached piece snaps its mated edge onto its already-placed
@@ -1062,7 +1085,7 @@
             let dy=pXf.dy;
             if (j>pi) for(let t=pi;t<j;t++) dy+=thick(ordered[t].shape);
             else      for(let t=j;t<pi;t++) dy-=thick(ordered[t].shape);
-            const xf = align2D(pm.poly, m.poly, pXf); xf.dy = dy;
+            const xf = align2D(pm.poly, m.poly, pXf, seam.fit==='partial' ? seam.anchor : null); xf.dy = dy;
             S.pieceXf.set(m.shape, xf); visited.add(m.shape); remaining.delete(m.shape);
             // Hinge for assembled mode: child folds about its PARENT's shared edge (the seam line),
             // expressed in the parent's local geometry frame, at the parent's top face.
@@ -1078,11 +1101,12 @@
   // Tier-2: after positioning, flag seams whose mated edges don't actually coincide in the
   // XZ plane (a closed loop that can't lie flat, or an over-constrained cycle). Stack height
   // (dy) is intended separation, so the gap is measured in-plane only. Length-mismatched
-  // seams already carry a Tier-1 warning, so they're skipped here.
+  // seams already carry a Tier-1 warning, so they're skipped here; so are PARTIAL joins (U6),
+  // whose spans are intentionally unequal — a resampled point-for-point compare would overstate it.
   function computeSeamGaps(seams){
     const lengthBad = new Set(S.problems.filter(p=>p.kind==='length').map(p=>p.seam));
     for (const seam of seams){
-      if (lengthBad.has(seam.id)) continue;
+      if (lengthBad.has(seam.id) || seam.fit==='partial') continue;
       const ref = seam.resolved[0], refXf = S.pieceXf.get(ref.shape) || IDENT_XF;
       const refPts = resampleByArcLength(ref.poly, SEAM_RIBBON_K).map(p=>applyXf2D(refXf,p));
       let maxGap=0;

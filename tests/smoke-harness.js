@@ -264,6 +264,51 @@ window.__SMOKE__ = function (spec) {
       assert('clearScene resets assembly state', S.assembly === null && S.seamMeshes.length === 0);
     },
 
+    // --- #U6 partial / unequal-length seams ---
+    partialseams() {
+      // clipPolyByT: a 100mm edge clipped to the middle 40% -> ~40mm
+      const full = sampleEdge({ type: 'rect', x: 0, y: 0, w: 100, h: 80 }, 0);
+      assertNear('clipPolyByT: middle 30-70% -> ~40mm', polyLength(clipPolyByT(full, 0.3, 0.7)), 40, 1e-3);
+      assert('clipPolyByT: whole edge returns input', clipPolyByT(full, 0, 1) === full);
+
+      // PARTIAL join: a 100mm edge clipped to 45% mated with a 45mm edge -> equal spans, no warning
+      loadPattern({
+        shapes: [
+          { id: 1, type: 'rect', x: 0,   y: 0, w: 100, h: 80, name: 'back' },
+          { id: 2, type: 'rect', x: 200, y: 0, w: 45,  h: 80, name: 'pocket' },
+        ],
+        assembly: { version: 2, seams: [
+          { id: 1, name: 'partial-spine', type: 'stitch', fit: 'partial', anchor: 'start',
+            members: [{ shape: 1, edge: 0, t0: 0, t1: 0.45 }, { shape: 2, edge: 0 }] },
+        ] },
+      }, 'partial');
+      const s = S.assembly.seams.find(x => x.id === 1);
+      assert('partial seam carries fit=partial', s.fit === 'partial');
+      assertNear('partial member clipped to ~45mm', s.resolved[0].len, 45, 0.5);
+      assert('partial join: NO length-mismatch problem', !S.problems.some(p => p.kind === 'length'));
+
+      // control: the SAME unequal edges as a FULL join DO raise the mismatch
+      loadPattern({
+        shapes: [
+          { id: 1, type: 'rect', x: 0,   y: 0, w: 100, h: 80 },
+          { id: 2, type: 'rect', x: 200, y: 0, w: 45,  h: 80 },
+        ],
+        assembly: { version: 2, seams: [
+          { id: 1, name: 'full', type: 'stitch', members: [{ shape: 1, edge: 0 }, { shape: 2, edge: 0 }] },
+        ] },
+      }, 'fullctrl');
+      assert('full join (unequal): length-mismatch flagged', S.problems.some(p => p.kind === 'length'));
+
+      // align2D anchors: 'end' coincides the far endpoints, 'start' the near ones
+      const ref = [{ x: 0, y: 0 }, { x: 100, y: 0 }], mov = [{ x: 0, y: 0 }, { x: 45, y: 0 }];
+      const movEnd = applyXf2D(align2D(ref, mov, IDENT_XF, 'end'), mov[1]);
+      assertNear('align2D end-anchor: mov end -> ref end (x=100)', movEnd.x, 100, 1e-3);
+      const movStart = applyXf2D(align2D(ref, mov, IDENT_XF, 'start'), mov[0]);
+      assertNear('align2D start-anchor: mov start -> ref start (x=0)', movStart.x, 0, 1e-3);
+
+      clearScene();
+    },
+
     // --- S1: pairwise edge-snap + thickness/layer stacking ---
     stacking() {
       // two rects drawn far apart, joined along equal-length edges (rect1 right <-> rect2 left)
@@ -415,7 +460,7 @@ window.__SMOKE__ = function (spec) {
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'camera', 'stitch3d', 'nostitch', 'assembly', 'stacking', 'graph', 'fold', 'a11y'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'camera', 'stitch3d', 'nostitch', 'assembly', 'partialseams', 'stacking', 'graph', 'fold', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {

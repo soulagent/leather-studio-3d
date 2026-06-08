@@ -12,7 +12,7 @@ _shot.html
 tests/_dump.out
 tests/_dump.err
 tests/_shot*
-tests/_stitch_demo.lpd
+tests/_*.lpd
 
 # Build output (none yet — desktop wrapper TBD)
 dist/
