@@ -182,6 +182,13 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
    the HTML file input works in WebView2); a paid Authenticode cert to silence SmartScreen.
 5. **Thickness**: `rebuild()` re-runs the loader on change; fine, but a partial update would be
    cheaper if perf matters on big patterns.
+6. **Update-check UX** (user feedback 2026-06-08): (a) the auto-update prompt currently only surfaces
+   when a `.lpd` is opened — it should also run during the **home/welcome screen** sequence (the
+   launch `checkForUpdates()` fires, but its prompt doesn't appear while Home is up). (b) Make the
+   check **visible**: replace the silent launch check with a brief "Checking for updates…" popup that
+   **auto-closes if already current** and only **prompts when an update exists**. Applies to the
+   manual *Help ▸ Check for Updates* too (give it the same in-progress indicator). _Mirror the same
+   change in the Pattern Designer — see its DEVLOG TODO._
 
 ---
 
