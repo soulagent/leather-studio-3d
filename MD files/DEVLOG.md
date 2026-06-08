@@ -5,7 +5,15 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
-## (unreleased) — S3: hinge/fold dihedral — assembled preview (Phase 2b) (2026-06-08)
+## v0.0.5 — 3D auto-stacking: seam consume → stack → fold (S0–S3) (2026-06-08)
+
+Built **slate-vireo-V5**. The 3D app's first big feature release since v0.0.4: it now reads the
+Pattern Designer's **v15 `assembly`** model and previews the **assembled product**, not just flat
+panels — pieces snap together at their seams, stack by layer/thickness, and fold up into 3D, with
+read-only problem detection. Released through CI (installed apps auto-update). App smoke **36 → 88**;
+build smoke **36/36**. The four build steps (S0–S3) are detailed below.
+
+### S3: hinge/fold dihedral — assembled preview (Phase 2b)
 
 Fourth step of the 3D auto-stacking stream. **Code + smoke only — still v0.0.4; ships at S4.**
 The actual **assembled-product preview**: pieces fold up about their seams into 3D.
@@ -31,9 +39,7 @@ The actual **assembled-product preview**: pieces fold up about their seams into 
   plane; assemble slider + mode plumbing drive the live group matrices; root stays put). App suite
   **79 → 88**; build smoke **36/36**.
 
----
-
-## (unreleased) — S2: whole seam-graph positioning from a root (2026-06-08)
+### S2: whole seam-graph positioning from a root
 
 Third step of the 3D auto-stacking stream. **Code + smoke only — still v0.0.4, no release.**
 Generalises S1's single-pair stacking to a whole multi-piece assembly.
@@ -55,9 +61,7 @@ Generalises S1's single-pair stacking to a whole multi-piece assembly.
   N-way spine stacks at cumulative heights; a 3-seam cycle flags a residual gap with all pieces still
   placed). App suite **70 → 79**; build smoke **36/36**.
 
----
-
-## (unreleased) — S1: pairwise edge-snap + thickness/layer stacking (2026-06-08)
+### S1: pairwise edge-snap + thickness/layer stacking
 
 Second step of the 3D auto-stacking stream. **Code + smoke only — still v0.0.4, no release.**
 The user's core ask: pieces should stack from their seam attachments + layer order **without
@@ -84,9 +88,7 @@ pre-overlapping the 2D patterns**.
   reference thickness, reference unmoved, flat/stacked toggle round-trip, clearScene reset). App
   suite **61 → 70**; build smoke **36/36**.
 
----
-
-## (unreleased) — S0: consume the v15 assembly model (Phase 2a foundation) (2026-06-08)
+### S0: consume the v15 assembly model (Phase 2a foundation)
 
 First step of the 3D auto-stacking stream (S0–S4). **Code + smoke only — version stays v0.0.4
 until the stream ships at S4** (no release yet). Reads the Pattern Designer's `assembly` model
