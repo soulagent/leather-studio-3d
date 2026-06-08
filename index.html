@@ -52,6 +52,7 @@
   #app-title .ver{font-size:10px;color:var(--text-muted);font-weight:400}
   .m-item{position:relative;display:flex;align-items:center;padding:0 11px;font-size:13px;cursor:default}
   .m-item:hover,.m-item.open{background:var(--hover)}
+  .m-item:focus-visible,.m-act:focus-visible{outline:2px solid var(--accent-bright);outline-offset:-2px}
   .m-drop{
     position:absolute; top:30px; left:0; min-width:184px; z-index:40;
     background:var(--raised); border:1px solid var(--border); border-radius:6px;
@@ -63,6 +64,16 @@
   .m-act .kb{color:var(--text-faint);font-size:11px}
   .m-act .m-chk{color:var(--accent-bright);width:12px;text-align:center}
   .m-sep{height:1px;background:var(--border);margin:5px 0}
+  /* top-right theme toggle button */
+  #theme-btn{
+    margin-left:auto; align-self:center; margin-right:8px;
+    width:24px; height:24px; display:flex; align-items:center; justify-content:center;
+    background:transparent; border:1px solid var(--border); border-radius:6px;
+    color:var(--text-muted); cursor:pointer; padding:0;
+  }
+  #theme-btn:hover{background:var(--hover); color:var(--text-2)}
+  #theme-btn:focus-visible{outline:2px solid var(--accent-bright); outline-offset:1px}
+  #theme-btn svg{width:14px; height:14px; display:block}
 
   /* ── Main: canvas + props ── */
   #main{flex:1;display:flex;min-height:0}
@@ -178,7 +189,7 @@
 </style>
 </head>
 <body>
-  <div id="menubar">
+  <div id="menubar" role="menubar" aria-label="Main menu">
     <div id="app-title"><span class="dot"></span>Leather Studio 3D <span class="ver" id="verTag"></span></div>
 
     <div class="m-item" data-menu>File
@@ -208,6 +219,8 @@
         <div class="m-act" id="mi-about">About</div>
       </div>
     </div>
+
+    <button id="theme-btn" type="button" aria-label="Toggle light/dark mode" aria-pressed="false" title="Toggle theme"></button>
   </div>
 
   <div id="main">
@@ -219,7 +232,7 @@
       </div>
     </div>
 
-    <div id="props-resize" title="Drag to resize"></div>
+    <div id="props-resize" title="Drag to resize" role="separator" aria-orientation="vertical" aria-label="Resize properties panel"></div>
 
     <div id="props">
       <div class="p-sec">
@@ -298,7 +311,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.3';
+  const APP_VERSION = 'v0.0.4';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -843,6 +856,9 @@
   }
 
   // ── Theme ──
+  // Sun icon shows in dark mode (click -> brighten); moon shows in light mode.
+  const SUN_SVG  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+  const MOON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
   function applyTheme(){
     document.body.classList.toggle('light', S.light);
     scene.background.set(S.light ? 0xfbfbfd : 0x0d0d1f);
@@ -850,7 +866,14 @@
     grid = makeGrid(); grid.visible = S.showGrid;
     scene.add(grid);
     setMenuCheck('chk-light', S.light);
+    const btn = document.getElementById('theme-btn');
+    if(btn){
+      btn.innerHTML = S.light ? MOON_SVG : SUN_SVG;
+      btn.setAttribute('aria-pressed', S.light ? 'true' : 'false');
+      btn.title = S.light ? 'Switch to dark mode' : 'Switch to light mode';
+    }
   }
+  function toggleTheme(){ S.light = !S.light; applyTheme(); lsSet('ls3d-theme', S.light ? 'light' : 'dark'); }
 
   // ── Small helpers (status flash + menu checkmarks) ──
   let flashTimer = null;
@@ -910,16 +933,56 @@
     filePick.value = '';
   };
 
-  // ── Menu wiring ──
-  document.querySelectorAll('.m-item[data-menu]').forEach(mi=>{
+  // ── Menu wiring + keyboard-accessible ARIA menubar ──
+  const menuItems = [...document.querySelectorAll('.m-item[data-menu]')];
+  function closeAllMenus(){
+    menuItems.forEach(x=>{ x.classList.remove('open'); x.setAttribute('aria-expanded','false'); });
+  }
+  function openMenu(mi){ closeAllMenus(); mi.classList.add('open'); mi.setAttribute('aria-expanded','true'); }
+
+  menuItems.forEach((mi, mIdx)=>{
+    // ARIA roles + roving focus targets
+    const label = (mi.childNodes[0].textContent || '').trim();
+    mi.setAttribute('role','menuitem');
+    mi.setAttribute('aria-haspopup','true');
+    mi.setAttribute('aria-expanded','false');
+    mi.setAttribute('aria-label', label + ' menu');
+    mi.tabIndex = 0;
+    const drop = mi.querySelector('.m-drop');
+    if (drop){ drop.setAttribute('role','menu'); drop.setAttribute('aria-label', label); }
+    const acts = [...mi.querySelectorAll('.m-act')];
+    acts.forEach(a=>{ a.setAttribute('role','menuitem'); a.tabIndex = -1; });
+
     mi.addEventListener('click', e=>{
       const wasOpen = mi.classList.contains('open');
-      document.querySelectorAll('.m-item').forEach(x=>x.classList.remove('open'));
-      if (!wasOpen) mi.classList.add('open');
+      closeAllMenus();
+      if (!wasOpen) openMenu(mi);
       e.stopPropagation();
     });
+
+    // Keyboard on the top-level item (ignore keys bubbling up from dropdown items)
+    mi.addEventListener('keydown', e=>{
+      if (e.target !== mi) return;
+      if (e.key==='Enter' || e.key===' ' || e.key==='ArrowDown'){
+        e.preventDefault(); openMenu(mi); if (acts[0]) acts[0].focus();
+      } else if (e.key==='Escape'){ closeAllMenus(); }
+      else if (e.key==='ArrowRight'){ e.preventDefault(); (menuItems[mIdx+1]||menuItems[0]).focus(); }
+      else if (e.key==='ArrowLeft'){ e.preventDefault(); (menuItems[mIdx-1]||menuItems[menuItems.length-1]).focus(); }
+    });
+
+    // Keyboard within an open dropdown
+    acts.forEach((a, idx)=>{
+      a.addEventListener('keydown', e=>{
+        if (e.key==='Enter' || e.key===' '){ e.preventDefault(); a.click(); }
+        else if (e.key==='ArrowDown'){ e.preventDefault(); (acts[idx+1]||acts[0]).focus(); }
+        else if (e.key==='ArrowUp'){ e.preventDefault(); (acts[idx-1]||acts[acts.length-1]).focus(); }
+        else if (e.key==='Escape'){ e.preventDefault(); closeAllMenus(); mi.focus(); }
+        else if (e.key==='ArrowRight'){ e.preventDefault(); closeAllMenus(); const n=menuItems[mIdx+1]||menuItems[0]; openMenu(n); n.querySelector('.m-act')?.focus(); }
+        else if (e.key==='ArrowLeft'){ e.preventDefault(); closeAllMenus(); const p=menuItems[mIdx-1]||menuItems[menuItems.length-1]; openMenu(p); p.querySelector('.m-act')?.focus(); }
+      });
+    });
   });
-  document.addEventListener('click', ()=> document.querySelectorAll('.m-item').forEach(x=>x.classList.remove('open')));
+  document.addEventListener('click', closeAllMenus);
 
   document.getElementById('mi-sample').onclick = loadSample;
   document.getElementById('mi-clear').onclick  = clearScene;
@@ -927,7 +990,8 @@
   document.getElementById('mi-grid').onclick   = e=>{ e.stopPropagation(); S.showGrid=!S.showGrid; applyGrid(); savePrefs(); };
   document.getElementById('mi-wire').onclick   = e=>{ e.stopPropagation(); S.wireframe=!S.wireframe; setMenuCheck('chk-wire',S.wireframe); document.getElementById('ckWire').checked=S.wireframe; applyMaterials(); savePrefs(); };
   document.getElementById('mi-stitch').onclick = e=>{ e.stopPropagation(); S.showStitches=!S.showStitches; applyStitch(); savePrefs(); };
-  document.getElementById('mi-theme').onclick  = e=>{ e.stopPropagation(); S.light=!S.light; applyTheme(); lsSet('ls3d-theme', S.light?'light':'dark'); };
+  document.getElementById('mi-theme').onclick  = e=>{ e.stopPropagation(); toggleTheme(); };
+  document.getElementById('theme-btn').onclick  = toggleTheme;
   document.getElementById('mi-update').onclick = ()=> checkForUpdates(true);
   document.getElementById('mi-about').onclick  = ()=> alertModal('Leather Studio 3D '+APP_VERSION+'\n\n3D preview companion to the Leather Pattern Designer.\nLoads a .lpd and previews the pieces in 3D.', 'About');
 

@@ -1,11 +1,12 @@
 {
   "_comment": "Build ledger for the packaged desktop exe. APP_VERSION (dev/working number) lives in index.html; each build mints a buildTag = two random words + -V<buildCount>. On the next build: increment buildCount, generate two fresh random words, set buildTag, then cargo tauri build. Mirrors the Leather Pattern Designer's workflow.",
-  "devVersion": "0.0.3",
-  "buildCount": 3,
-  "buildTag": "russet-heron-V3",
+  "devVersion": "0.0.4",
+  "buildCount": 4,
+  "buildTag": "verdant-lynx-V4",
   "history": [
     { "v": 1, "tag": "amber-otter-V1", "dev": "0.0.2", "date": "2026-06-07" },
     { "v": 2, "tag": "cobalt-marten-V2", "dev": "0.0.2", "date": "2026-06-07", "note": "auto-update + updater signing; first signed build" },
-    { "v": 3, "tag": "russet-heron-V3", "dev": "0.0.3", "date": "2026-06-07", "note": "v0.0.3 release (CI): controls + props panel + theme/prefs persistence + welcome screen" }
+    { "v": 3, "tag": "russet-heron-V3", "dev": "0.0.3", "date": "2026-06-07", "note": "v0.0.3 release (CI): controls + props panel + theme/prefs persistence + welcome screen" },
+    { "v": 4, "tag": "verdant-lynx-V4", "dev": "0.0.4", "date": "2026-06-08", "note": "theme toggle button (#24) + keyboard-accessible ARIA menubar (#22)" }
   ]
 }

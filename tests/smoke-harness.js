@@ -141,10 +141,36 @@ window.__SMOKE__ = function (spec) {
       assert('no hasStitch -> still 1 panel', S.panelMeshes.length === 1, `panels=${S.panelMeshes.length}`);
       clearScene();
     },
+
+    // --- #24 theme toggle button + #22 keyboard-accessible menubar ---
+    a11y() {
+      const btn = document.getElementById('theme-btn');
+      assert('theme-btn exists and is a <button>', !!btn && btn.tagName === 'BUTTON');
+      assert('theme-btn has aria-pressed', !!btn && btn.hasAttribute('aria-pressed'));
+      assert('theme-btn renders an icon (svg)', !!btn && !!btn.querySelector('svg'));
+      // toggling theme flips aria-pressed and swaps the icon
+      const before = btn.getAttribute('aria-pressed');
+      toggleTheme();
+      assert('toggleTheme flips aria-pressed', btn.getAttribute('aria-pressed') !== before);
+      toggleTheme(); // restore
+
+      const bar = document.getElementById('menubar');
+      assert('menubar has role=menubar', bar && bar.getAttribute('role') === 'menubar');
+      const items = [...document.querySelectorAll('.m-item[data-menu]')];
+      assert('menubar has top-level items', items.length >= 3, `items=${items.length}`);
+      assert('top-level items are focusable role=menuitem',
+        items.every(mi => mi.getAttribute('role') === 'menuitem' && mi.tabIndex === 0));
+      assert('top-level items expose aria-haspopup + aria-expanded',
+        items.every(mi => mi.getAttribute('aria-haspopup') === 'true' && mi.hasAttribute('aria-expanded')));
+      assert('every dropdown action is role=menuitem',
+        [...document.querySelectorAll('.m-act')].every(a => a.getAttribute('role') === 'menuitem'));
+      assert('resize handle is role=separator',
+        document.getElementById('props-resize').getAttribute('role') === 'separator');
+    },
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {

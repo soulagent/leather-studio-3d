@@ -1,5 +1,5 @@
 # Leather Studio 3D — Keyboard & Mouse Reference
-_v0.0.3_
+_v0.0.4_
 
 ---
 
@@ -33,6 +33,17 @@ _v0.0.3_
 | View ▸ Wireframe | Toggle wireframe (also in Scene panel) |
 | View ▸ Stitching | Toggle stitch holes + thread (also in Scene panel) |
 | View ▸ Light mode | Toggle light / dark theme |
+| Top-right ☀/☾ button | Toggle light / dark theme (same as View ▸ Light mode) |
+
+## Menu keyboard navigation
+
+| Input | Action |
+|-------|--------|
+| `Tab` | Move focus to the menubar (File / View / Help) and other controls |
+| `Enter` / `Space` / `↓` | Open the focused menu |
+| `↑` / `↓` | Move between items in an open menu |
+| `←` / `→` | Move between menus |
+| `Esc` | Close the open menu |
 
 ## Props panel
 

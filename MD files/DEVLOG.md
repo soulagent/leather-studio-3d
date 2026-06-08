@@ -5,6 +5,33 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.4 — theme toggle button + keyboard-accessible menubar (2026-06-08)
+
+Finishes the two v0.0.3 carry-forwards (#24, #22).
+
+- **Top-right theme toggle button** (#24): a `#theme-btn` pinned to the right of the menubar
+  (`margin-left:auto`), showing a **sun** icon in dark mode (click → brighten) and a **moon** in
+  light mode; inline SVG (`SUN_SVG`/`MOON_SVG`) swapped in `applyTheme`, `aria-pressed` + `title`
+  kept in sync. Theme toggling refactored into one `toggleTheme()` (persist `ls3d-theme`) shared by
+  the button and View ▸ Light mode.
+- **Keyboard-accessible ARIA menubar** (#22): the menubar and its items were clickable `<div>`s with
+  no roles/keyboard. Now `#menubar` is `role=menubar`; each top-level item is a focusable
+  `role=menuitem` with `aria-haspopup` + synced `aria-expanded`; dropdowns are `role=menu` and each
+  action is `role=menuitem`. Full keyboard nav: **Enter/Space/↓** opens a menu and focuses the first
+  item, **↑/↓** move within it, **←/→** move between menus (open-to-open inside a dropdown), **Esc**
+  closes. The top-level `keydown` is guarded (`e.target !== mi`) so keys bubbling up from dropdown
+  items don't double-fire. Menu open/close centralised in `openMenu`/`closeAllMenus` (keeps
+  `aria-expanded` honest). Resize handle is now `role=separator`. Added `.m-item`/`.m-act`
+  `:focus-visible` rings. (Home buttons, recents, prop inputs, checkboxes, and the v0.0.3 section
+  headers were already real controls.)
+- New **`a11y`** smoke feature (10 asserts: theme button is a real `<button>` with aria-pressed +
+  svg icon and toggles state; menubar/items/actions carry the right roles + focusability; resize
+  handle is a separator). Full **36/36**, build smoke unchanged.
+- **Open carry-forward:** none from the UI/UX track — next up is the Phase-2 **seam/assembly data
+  model** (the gate for fold/instructions/validation; see CONTEXT.md "The crux").
+
+---
+
 ## v0.0.3 — controls, properties panel, theme/prefs persistence, welcome screen (2026-06-07)
 
 UI/UX pass syncing learnings from the Pattern Designer (LPD). **Released** (build russet-heron-V3)
