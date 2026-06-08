@@ -134,6 +134,68 @@ window.__SMOKE__ = function (spec) {
       assert('clearScene empties panels', S.panelMeshes.length === 0 && S.stitchMeshes.length === 0);
     },
 
+    // --- #U3 camera framing + orbit pivot ---
+    camera() {
+      loadPattern({ shapes: [
+        { type: 'rect', id: 1, x: 0,   y: 0, w: 60, h: 40, name: 'Front', hasStitch: false },
+        { type: 'rect', id: 2, x: 300, y: 0, w: 60, h: 40, name: 'Back',  hasStitch: false },
+      ] }, 'cam');
+
+      const sel = document.getElementById('pivotSel');
+      assert('pivot select lists model + 2 pieces', sel && sel.options.length === 3, `opts=${sel ? sel.options.length : 0}`);
+      assert('pivot options carry piece names',
+        [...sel.options].some(o => o.textContent === 'Front') && [...sel.options].some(o => o.textContent === 'Back'));
+
+      // frame the whole model: orbit target lands on the model centre, camera pulled back
+      S.pivot = 'model';
+      frameTarget();
+      const mc = modelBox().getCenter(new THREE.Vector3());
+      assert('frame model: target at model centre', controls.target.distanceTo(mc) < 1, `d=${controls.target.distanceTo(mc).toFixed(2)}`);
+      assert('frame model: camera pulled off the target', camera.position.distanceTo(controls.target) > 5);
+
+      // choose a single piece as pivot -> orbit target snaps to that piece's centre
+      S.pivot = pieceKeyFromStr('2');
+      assert('piece key resolves from string', S.pivot != null);
+      aimPivot();
+      const pc = pieceBox(S.pivot).getCenter(new THREE.Vector3());
+      assert('pivot piece: target at piece centre', controls.target.distanceTo(pc) < 1, `d=${controls.target.distanceTo(pc).toFixed(2)}`);
+      assert('pivot piece: target differs from model centre', controls.target.distanceTo(mc) > 1);
+
+      clearScene();
+      assert('clearScene resets pivot to model', S.pivot === 'model');
+      assert('clearScene empties pivot dropdown to model-only', sel.options.length === 1);
+    },
+
+    // --- #U4/#U5 stitch-hole style geometry + saddle-stitch thread ---
+    stitch3d() {
+      const g = new THREE.Group();
+      const holes = [{ x: 0, y: 0, a: 0, yTop: 2 }, { x: 5, y: 0, a: 0, yTop: 2 }, { x: 10, y: 0, a: 0, yTop: 2 }];
+      const lastHoleGeo = st => { LP.stitchStyle = st; addHoleMesh(holes, g); return S.stitchMeshes[S.stitchMeshes.length - 1].geometry; };
+
+      // U4: hole geometry tracks the global stitch style
+      assert('round style -> cylinder holes', lastHoleGeo('round').type === 'CylinderGeometry');
+      assert('french style -> box (slit) holes', lastHoleGeo('french').type === 'BoxGeometry');
+      const dia = lastHoleGeo('diamond');
+      assert('diamond style -> 4-gon prism', dia.type === 'CylinderGeometry' && dia.parameters.radialSegments === 4);
+      assert('hole mesh is instanced per hole', S.stitchMeshes[S.stitchMeshes.length - 1].count === holes.length);
+
+      // U4: a non-round hole is turned to its local stitch angle (+ style offset) about world-Y
+      LP.stitchStyle = 'french';
+      addHoleMesh([{ x: 0, y: 0, a: Math.PI / 2, yTop: 2 }], g);
+      const hm = S.stitchMeshes[S.stitchMeshes.length - 1];
+      const mtx = new THREE.Matrix4(); hm.getMatrixAt(0, mtx);
+      const eul = new THREE.Euler().setFromRotationMatrix(mtx, 'YXZ');
+      assertNear('french hole turned to a-30 deg about Y', eul.y, Math.PI / 2 - Math.PI / 6, 0.02);
+
+      // U5: each gap gets a stitch on both faces -> 2 thread instances per segment
+      const segs = [{ a: { x: 0, y: 0 }, b: { x: 5, y: 0 }, yTop: 2 }, { a: { x: 5, y: 0 }, b: { x: 10, y: 0 }, yTop: 2 }];
+      addThreadMesh(segs, g);
+      const tm = S.threadMeshes[S.threadMeshes.length - 1];
+      assert('thread = 2 instances per gap (top + bottom)', tm.count === segs.length * 2, `count=${tm.count}`);
+
+      clearScene();
+    },
+
     // --- a shape with no stitching adds no stitch geometry ---
     nostitch() {
       loadPattern({ shapes: [{ type: 'rect', x: 0, y: 0, w: 50, h: 50, hasStitch: false }] }, 'plain');
@@ -322,16 +384,19 @@ window.__SMOKE__ = function (spec) {
       clearScene();
     },
 
-    // --- #24 theme toggle button + #22 keyboard-accessible menubar ---
+    // --- #24 theme toggle (pill, LPD-style) + #22 keyboard-accessible menubar ---
     a11y() {
-      const btn = document.getElementById('theme-btn');
-      assert('theme-btn exists and is a <button>', !!btn && btn.tagName === 'BUTTON');
-      assert('theme-btn has aria-pressed', !!btn && btn.hasAttribute('aria-pressed'));
-      assert('theme-btn renders an icon (svg)', !!btn && !!btn.querySelector('svg'));
-      // toggling theme flips aria-pressed and swaps the icon
-      const before = btn.getAttribute('aria-pressed');
+      const tog = document.getElementById('theme-toggle');
+      assert('theme-toggle exists and is role=button', !!tog && tog.getAttribute('role') === 'button');
+      assert('theme-toggle has aria-pressed', !!tog && tog.hasAttribute('aria-pressed'));
+      assert('theme-toggle is keyboard-focusable', !!tog && tog.tabIndex === 0);
+      assert('theme-toggle renders the sliding switch', !!tog && !!tog.querySelector('.theme-switch .theme-knob'));
+      // toggling theme flips aria-pressed + the label text
+      const before = tog.getAttribute('aria-pressed');
+      const lblBefore = document.getElementById('theme-label').textContent;
       toggleTheme();
-      assert('toggleTheme flips aria-pressed', btn.getAttribute('aria-pressed') !== before);
+      assert('toggleTheme flips aria-pressed', tog.getAttribute('aria-pressed') !== before);
+      assert('toggleTheme swaps the label', document.getElementById('theme-label').textContent !== lblBefore);
       toggleTheme(); // restore
 
       const bar = document.getElementById('menubar');
@@ -350,7 +415,7 @@ window.__SMOKE__ = function (spec) {
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'assembly', 'stacking', 'graph', 'fold', 'a11y'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'camera', 'stitch3d', 'nostitch', 'assembly', 'stacking', 'graph', 'fold', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {

@@ -5,6 +5,46 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.6 — card-holder feedback U1–U5: UI sync, 1 mm default, camera, stitch realism (2026-06-08)
+
+First slice of the card-holder testing feedback batch (U1–U7): the three **3D quick wins** (U1–U3)
+plus **stitch realism** (U4 hole shape + U5 saddle-stitch thread). The cross-app partial-seam /
+cross-stack work (U6/U7) remains queued. App smoke **88 → 105**; build smoke unchanged.
+
+- **U1 — top-right UI sync.** Replaced the square sun/moon `#theme-btn` with the Pattern Designer's
+  **sliding-pill `#theme-toggle`** (36×18 track + 14 px red knob, "Dark/Light Mode" label) and moved
+  the **product name + version** (`#app-title`) to the **top-right** next to it (LPD layout:
+  `margin-left:auto`, faint text). The old left brand block + `SUN_SVG`/`MOON_SVG` consts are gone;
+  `applyTheme` now drives the pill label + `aria-pressed`. Pill colours use the shared design tokens.
+- **U2 — default leather thickness 1 mm.** `S.thickness` default `2.0 → 1.0`; the `#matThick`
+  slider/number HTML defaults follow. Saved prefs still win (existing users keep their value).
+- **U3 — camera focus + pivot.** New **Camera** property section with a **Pivot** dropdown
+  (Whole model / each piece by name) + a **Frame view** button, and an **`F`** shortcut.
+  - `frameBox(box)` fits the camera to a `Box3` — aims `controls.target` at its centre and pulls the
+    camera back along the current view direction until the box fills the FOV (1.25× margin).
+  - `pivotBox()` returns the box for the current pivot (`S.pivot` = `'model'` or a `pieceGroups` key);
+    `frameTarget()` (F / button) fits it, `aimPivot()` re-aims the orbit target without moving the
+    camera. `pieceKeyFromStr` resolves the `<select>` string back to the real (possibly numeric) key.
+  - **Orbit now pivots about the model/piece centre**, not the ground origin — the core complaint.
+    Fresh loads auto-`frameTarget()`; switching **Flat/Stacked/Assembled** now `recentrePattern()` +
+    `aimPivot()` so orbit stays sane after a re-pose. `R` still snaps to the fixed home view.
+  - `camera` smoke feature (11 asserts); a11y feature updated for the new pill toggle.
+- **U4 — stitch-hole shape.** 3D holes now follow the editor's **global `settings.stitchStyle`**
+  (`round` / `diamond` / `french`, default french), read into `LP.stitchStyle` on load. `holeGeometry`
+  picks the cross-section — round cylinder, 4-gon prism (diamond, half-diag 0.6 mm), or a **1.2×0.35 mm
+  box slit** (french) — and each instance is turned about world-Y to its local stitch angle `a` plus the
+  style offset (french `a−30°`, diamond `a+45°`), mirroring the editor's SVG `rotate`. Shape XY→world XZ
+  (Y→−Z) makes a shape-plane orientation θ a world-Y rotation of exactly θ.
+- **U5 — proper saddle-stitch render.** Replaced the single floating tube-per-gap with a **two-needle
+  saddle stitch**: every gap gets a stitch on **both faces**, endpoints **inset** from the hole centres
+  (`STITCH_INSET`) so the dark holes read as distinct dots, and shifted perpendicular to the seam in
+  **opposite directions per face** (`STITCH_SLANT`) — the mirrored lean that makes hand stitching look
+  right. Thread sits just off each surface (`THREAD_RISE`). Thinner thread (`THREAD_R` 0.42→0.38).
+  - `stitch3d` smoke feature (6 asserts: per-style geometry, instanced count, french hole Y-orientation,
+    2 thread instances/gap).
+
+---
+
 ## v0.0.5 — 3D auto-stacking: seam consume → stack → fold (S0–S3) (2026-06-08)
 
 Built **slate-vireo-V5**. The 3D app's first big feature release since v0.0.4: it now reads the

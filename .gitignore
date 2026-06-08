@@ -8,8 +8,11 @@
 # Local test / scratch artifacts
 samples/_scratch*
 _run.html
+_shot.html
 tests/_dump.out
 tests/_dump.err
+tests/_shot*
+tests/_stitch_demo.lpd
 
 # Build output (none yet — desktop wrapper TBD)
 dist/

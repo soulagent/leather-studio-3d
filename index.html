@@ -44,12 +44,10 @@
     background:var(--panel); border-bottom:1px solid var(--border); padding-left:8px;
   }
   #app-title{
-    display:flex; align-items:center; gap:7px; padding:0 14px 0 4px; margin-right:6px;
-    font-weight:600; font-size:13px; letter-spacing:.02em; color:var(--text);
-    border-right:1px solid var(--border);
+    margin-left:auto; display:flex; align-items:center; gap:6px;
+    padding:0 10px 0 4px; font-size:11px; letter-spacing:.02em; color:var(--text-faint);
   }
-  #app-title .dot{width:9px;height:9px;border-radius:50%;background:var(--accent-bright)}
-  #app-title .ver{font-size:10px;color:var(--text-muted);font-weight:400}
+  #app-title .ver{color:var(--text-muted)}
   .m-item{position:relative;display:flex;align-items:center;padding:0 11px;font-size:13px;cursor:default}
   .m-item:hover,.m-item.open{background:var(--hover)}
   .m-item:focus-visible,.m-act:focus-visible{outline:2px solid var(--accent-bright);outline-offset:-2px}
@@ -64,16 +62,14 @@
   .m-act .kb{color:var(--text-faint);font-size:11px}
   .m-act .m-chk{color:var(--accent-bright);width:12px;text-align:center}
   .m-sep{height:1px;background:var(--border);margin:5px 0}
-  /* top-right theme toggle button */
-  #theme-btn{
-    margin-left:auto; align-self:center; margin-right:8px;
-    width:24px; height:24px; display:flex; align-items:center; justify-content:center;
-    background:transparent; border:1px solid var(--border); border-radius:6px;
-    color:var(--text-muted); cursor:pointer; padding:0;
-  }
-  #theme-btn:hover{background:var(--hover); color:var(--text-2)}
-  #theme-btn:focus-visible{outline:2px solid var(--accent-bright); outline-offset:1px}
-  #theme-btn svg{width:14px; height:14px; display:block}
+  /* top-right light/dark pill toggle (matches the Pattern Designer) */
+  #theme-toggle{display:flex;align-items:center;gap:8px;height:100%;padding:0 12px 0 4px;cursor:pointer;font-size:11px;color:var(--text-muted);user-select:none;outline:none}
+  #theme-toggle:hover,#theme-toggle:focus-visible{color:var(--text)}
+  #theme-label{white-space:nowrap;min-width:62px;text-align:right}
+  .theme-switch{position:relative;width:36px;height:18px;border-radius:9px;background:var(--raised);border:1px solid var(--border);flex-shrink:0;transition:background .15s,border-color .15s}
+  .theme-knob{position:absolute;top:1px;left:1px;width:14px;height:14px;border-radius:50%;background:var(--accent-bright);box-shadow:0 1px 2px rgba(0,0,0,.5);transition:transform .15s,background .15s}
+  body.light .theme-switch{background:var(--hover);border-color:var(--border)}
+  body.light .theme-knob{transform:translateX(18px);background:var(--accent)}
 
   /* ── Main: canvas + props ── */
   #main{flex:1;display:flex;min-height:0}
@@ -206,8 +202,6 @@
 </head>
 <body>
   <div id="menubar" role="menubar" aria-label="Main menu">
-    <div id="app-title"><span class="dot"></span>Leather Studio 3D <span class="ver" id="verTag"></span></div>
-
     <div class="m-item" data-menu>File
       <div class="m-drop">
         <div class="m-act" id="mi-open">Open .lpd<span class="kb">Ctrl+O</span></div>
@@ -237,7 +231,12 @@
       </div>
     </div>
 
-    <button id="theme-btn" type="button" aria-label="Toggle light/dark mode" aria-pressed="false" title="Toggle theme"></button>
+    <div id="app-title">Leather Studio 3D <span class="ver" id="verTag"></span></div>
+    <div id="theme-toggle" role="button" tabindex="0" aria-label="Toggle light/dark mode" aria-pressed="false" title="Toggle light / dark mode"
+         onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();toggleTheme();}">
+      <span id="theme-label">Dark Mode</span>
+      <span class="theme-switch"><span class="theme-knob"></span></span>
+    </div>
   </div>
 
   <div id="main">
@@ -257,7 +256,7 @@
         <div class="p-sec-body" id="body-material">
           <div class="p-field"><span class="p-lbl">Leather</span><input type="color" id="matColor" value="#7a4a2b"><input class="p-inp" id="matColorHex" value="#7a4a2b"></div>
           <div class="p-field"><span class="p-lbl">Roughness</span><input type="range" id="matRough" min="0" max="1" step="0.01" value="0.78"><span class="p-val" id="matRoughV">0.78</span></div>
-          <div class="p-field"><span class="p-lbl">Thickness</span><input type="range" id="matThick" min="0.5" max="6" step="0.1" value="2.0"><input type="number" class="p-num" id="matThickN" min="0.5" max="6" step="0.1" value="2.0" aria-label="Thickness (mm)"></div>
+          <div class="p-field"><span class="p-lbl">Thickness</span><input type="range" id="matThick" min="0.5" max="6" step="0.1" value="1.0"><input type="number" class="p-num" id="matThickN" min="0.5" max="6" step="0.1" value="1.0" aria-label="Thickness (mm)"></div>
         </div>
       </div>
 
@@ -284,6 +283,21 @@
           <label class="p-ck-row"><input type="checkbox" id="ckWire"> Wireframe</label>
           <label class="p-ck-row"><input type="checkbox" id="ckStitch" checked> Stitching (holes + thread)</label>
           <label class="p-ck-row"><input type="checkbox" id="ckSeams" checked> Seams &amp; folds</label>
+        </div>
+      </div>
+
+      <div class="p-sec">
+        <div class="p-hd" id="hd-camera"><span>Camera</span><span class="p-tog">&#9662;</span></div>
+        <div class="p-sec-body" id="body-camera">
+          <div class="p-field">
+            <span class="p-lbl">Pivot</span>
+            <select id="pivotSel" class="p-sel" aria-label="Orbit pivot"><option value="model">Whole model</option></select>
+          </div>
+          <div class="p-field">
+            <span class="p-lbl">&nbsp;</span>
+            <button type="button" id="frameBtn" class="seg-btn" style="flex:1;border:1px solid var(--border);border-radius:5px">Frame view <span style="color:var(--text-faint)">F</span></button>
+          </div>
+          <div class="p-note">Pivot sets the orbit centre. <b>F</b> frames the pivot to fit. <b>R</b> resets to the home view.</div>
         </div>
       </div>
 
@@ -352,14 +366,14 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.5';
+  const APP_VERSION = 'v0.0.6';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
   // ── Shared app state ──
   const S = {
     light:false,
-    leather:0x7a4a2b, roughness:0.78, thickness:2.0,
+    leather:0x7a4a2b, roughness:0.78, thickness:1.0,
     stitch:0xe8d9a0,
     keyLight:1.5, ambient:0.6,
     showGrid:true, wireframe:false, showStitches:true,
@@ -380,10 +394,13 @@
     threadMeshes:[],           // per-piece thread meshes (for live colour change)
     assembleT:1,               // 0..1 Flat↔Assembled fold amount (the assemble slider)
     foldAngle:90,              // target dihedral (deg) applied to every seam hinge when assembled
+    pivot:'model',             // orbit pivot: 'model' (centroid) or a pieceGroups key (U3)
   };
 
   // Stitch defaults from the loaded .lpd's settings (per-shape values override these).
-  const LP = { defMargin:3, defSpacing:3.38 };
+  // stitchStyle is a GLOBAL doc setting in the editor ('round' | 'diamond' | 'french',
+  // default french = the user's pricking irons) — drives the 3D hole geometry (U4).
+  const LP = { defMargin:3, defSpacing:3.38, stitchStyle:'french' };
 
   // ── localStorage helpers (file:// origin can throw; degrade silently) ──
   const lsGet = k => { try { return localStorage.getItem(k); } catch { return null; } };
@@ -782,8 +799,9 @@
     clearScene();
     S.lastData = data; S.lastName = name;
     S.docName = name || 'pattern';
-    LP.defMargin  = data?.settings?.defMargin  ?? 3;
-    LP.defSpacing = data?.settings?.defSpacing ?? 3.38;
+    LP.defMargin   = data?.settings?.defMargin   ?? 3;
+    LP.defSpacing  = data?.settings?.defSpacing  ?? 3.38;
+    LP.stitchStyle = data?.settings?.stitchStyle ?? 'french';
     const shapes = Array.isArray(data?.shapes) ? data.shapes : [];
     let made = 0, holeCt = 0;
     // Each piece is built into its OWN group (so it can be rigidly posed for stacking/
@@ -815,7 +833,8 @@
     applyPieceTransforms();         // pose each piece group for the current assemblyMode
     buildSeamOverlays();            // seam connectors + fold creases (transform-aware)
     recentrePattern();
-    if (!keepCam) resetCamera();
+    populatePivotSelect();          // refresh the orbit-pivot dropdown for this pattern
+    if (!keepCam){ resetCamera(); frameTarget(); }   // fit the whole model into view
     renderAssemblyPanel();
     document.getElementById('empty-hint').style.display = made ? 'none' : '';
     const hp = holeCt ? ` · ${holeCt} stitch holes` : '';
@@ -872,33 +891,63 @@
     if (wraps && P.length>2) join(P[P.length-1], P[0]);
   }
 
-  const HOLE_R=0.55, HOLE_H=0.7, THREAD_R=0.42;
+  const HOLE_R=0.55, HOLE_H=0.7, THREAD_R=0.38;
+  // U4: hole geometry follows the editor's GLOBAL stitch style (LP.stitchStyle).
+  // The long axis of each non-round hole is built along +X; each instance is then
+  // turned about world-Y to the local stitch angle `a` (+ the style's own offset,
+  // mirroring the editor's SVG rotate: french = a-30°, diamond = a+45°). Shape XY
+  // maps to world XZ with shape-Y → world -Z, which makes a shape-plane orientation
+  // θ a world-Y rotation of exactly θ (derived: geom +X under rotY(θ) → (cosθ,0,-sinθ)).
+  function holeGeometry(style){
+    if (style==='french')  return new THREE.BoxGeometry(1.2, HOLE_H, 0.35);        // slanted slit (1.2×0.35 mm)
+    if (style==='diamond') return new THREE.CylinderGeometry(0.6, 0.6, HOLE_H, 4); // square prism (half-diag 0.6)
+    return new THREE.CylinderGeometry(HOLE_R, HOLE_R, HOLE_H, 12);                 // round
+  }
   function addHoleMesh(holes, group){
-    const geo=new THREE.CylinderGeometry(HOLE_R,HOLE_R,HOLE_H,10);
+    const style=LP.stitchStyle;
+    const off = style==='french' ? -Math.PI/6 : style==='diamond' ? Math.PI/4 : 0;
+    const oriented = style!=='round';
+    const geo=holeGeometry(style);
     const mat=new THREE.MeshStandardMaterial({color:0x140d07, roughness:0.95});
     const m=new THREE.InstancedMesh(geo,mat,holes.length);
     const o=new THREE.Object3D();
     for (let i=0;i<holes.length;i++){
-      o.position.set(holes[i].x, (holes[i].yTop ?? S.thickness)-HOLE_H*0.25, -holes[i].y); // cylinder axis = Y → vertical
-      o.rotation.set(0,0,0); o.scale.set(1,1,1); o.updateMatrix();
+      o.position.set(holes[i].x, (holes[i].yTop ?? S.thickness)-HOLE_H*0.25, -holes[i].y); // axis = Y → vertical
+      o.rotation.set(0, oriented ? (holes[i].a||0)+off : 0, 0); o.scale.set(1,1,1); o.updateMatrix();
       m.setMatrixAt(i,o.matrix);
     }
     m.receiveShadow=true;
     (group||patternGroup).add(m); S.stitchMeshes.push(m);
   }
+  // U5: saddle-stitch thread. Each gap between consecutive holes gets a stitch on
+  // BOTH faces (two-needle saddle stitch covers every gap top + bottom). Endpoints
+  // are inset from the hole centres (so the dark holes show through as distinct dots)
+  // and shifted perpendicular to the seam in opposite directions per face — the
+  // mirrored slant that makes hand-saddle-stitch read correctly.
+  const STITCH_INSET=0.34, STITCH_SLANT=0.32, THREAD_RISE=0.12;
   function addThreadMesh(segs, group){
     const geo=new THREE.CylinderGeometry(THREAD_R,THREAD_R,1,8); // unit-height; scaled per instance
-    const mat=new THREE.MeshStandardMaterial({color:S.stitch, roughness:0.55});
-    const m=new THREE.InstancedMesh(geo,mat,segs.length);
+    const mat=new THREE.MeshStandardMaterial({color:S.stitch, roughness:0.5});
+    const m=new THREE.InstancedMesh(geo,mat,segs.length*2);
     const o=new THREE.Object3D(), up=new THREE.Vector3(0,1,0), dir=new THREE.Vector3(), q=new THREE.Quaternion();
-    for (let i=0;i<segs.length;i++){
-      const a=segs[i].a, b=segs[i].b;
-      const ax=a.x, az=-a.y, bx=b.x, bz=-b.y;
-      dir.set(bx-ax, 0, bz-az); const L=dir.length()||1; dir.normalize();
-      q.setFromUnitVectors(up, dir);
-      o.position.set((ax+bx)/2, (segs[i].yTop ?? S.thickness)+0.18, (az+bz)/2);
-      o.quaternion.copy(q); o.scale.set(1,L,1); o.updateMatrix();
-      m.setMatrixAt(i,o.matrix);
+    let idx=0;
+    for (const s of segs){
+      const a=s.a, b=s.b, yTop=s.yTop ?? S.thickness;
+      let ux=b.x-a.x, uy=b.y-a.y; const len=Math.hypot(ux,uy)||1; ux/=len; uy/=len;
+      const nx=-uy, ny=ux;                  // left normal in the shape plane
+      for (const face of [1,-1]){           // +1 = top face, -1 = bottom face (mirrored slant)
+        const sx=a.x + ux*STITCH_INSET + nx*STITCH_SLANT*face;
+        const sy=a.y + uy*STITCH_INSET + ny*STITCH_SLANT*face;
+        const ex=b.x - ux*STITCH_INSET - nx*STITCH_SLANT*face;
+        const ey=b.y - uy*STITCH_INSET - ny*STITCH_SLANT*face;
+        const y = face>0 ? yTop+THREAD_RISE : -THREAD_RISE;
+        const axw=sx, azw=-sy, bxw=ex, bzw=-ey;
+        dir.set(bxw-axw, 0, bzw-azw); const L=dir.length()||1; dir.normalize();
+        q.setFromUnitVectors(up, dir);
+        o.position.set((axw+bxw)/2, y, (azw+bzw)/2);
+        o.quaternion.copy(q); o.scale.set(1,L,1); o.updateMatrix();
+        m.setMatrixAt(idx++, o.matrix);
+      }
     }
     m.castShadow=true;
     (group||patternGroup).add(m); S.stitchMeshes.push(m); S.threadMeshes.push(m);
@@ -1097,6 +1146,7 @@
     applyPieceTransforms();
     refreshSeamOverlays();
     recentrePattern();
+    aimPivot();                 // re-aim the orbit target at the re-posed model so orbit feels right
     renderAssemblyPanel();
     savePrefs();
   }
@@ -1196,6 +1246,55 @@
     patternGroup.position.set(-c.x, patternGroup.position.y, -c.z);
   }
 
+  // ── Camera framing + orbit pivot (U3) ───────────────────────────────────
+  // World-space bounding box of the whole model, or one piece group.
+  function modelBox(){ patternGroup.updateMatrixWorld(true); return new THREE.Box3().setFromObject(patternGroup); }
+  function pieceBox(key){ const w=S.pieceGroups.get(key); if(!w) return null; patternGroup.updateMatrixWorld(true); return new THREE.Box3().setFromObject(w.group); }
+  // pieceGroups keys may be numbers (sh.id) or '_idx' strings; the <select> hands
+  // back strings, so resolve by string-equality to the real key.
+  function pieceKeyFromStr(s){ for(const k of S.pieceGroups.keys()) if(String(k)===s) return k; return null; }
+  // Box for whatever the pivot points at ('model' or a piece key); falls back to the model.
+  function pivotBox(){
+    if (S.pivot!=='model' && S.pieceGroups.has(S.pivot)){ const b=pieceBox(S.pivot); if(b && !b.isEmpty()) return b; }
+    return modelBox();
+  }
+  // Aim the orbit target at the pivot centre WITHOUT moving the camera (orbit now
+  // spins about that point). Used when the pivot choice or assembly pose changes.
+  function aimPivot(){
+    const b=pivotBox(); if(!b || b.isEmpty()) return;
+    controls.target.copy(b.getCenter(new THREE.Vector3()));
+    controls.update();
+  }
+  // Fit the camera to a Box3: target its centre + pull back along the current view
+  // direction until the box fills the FOV (with a margin).
+  function frameBox(box){
+    if (!box || box.isEmpty()) return;
+    const c=box.getCenter(new THREE.Vector3()), size=box.getSize(new THREE.Vector3());
+    const radius=0.5*Math.max(size.x, size.y, size.z, 1);
+    const vFov=camera.fov*Math.PI/180, hFov=2*Math.atan(Math.tan(vFov/2)*camera.aspect);
+    let dist=radius/Math.sin(Math.min(vFov, hFov)/2)*1.25;
+    const dir=new THREE.Vector3().subVectors(camera.position, controls.target);
+    if (dir.lengthSq()<1e-6) dir.copy(HOME_CAM);
+    dir.normalize();
+    controls.target.copy(c);
+    camera.position.copy(c).addScaledVector(dir, dist);
+    controls.update();
+  }
+  // F / Frame button: fit the camera to the current pivot.
+  function frameTarget(){ frameBox(pivotBox()); }
+
+  // (Re)fill the pivot dropdown from the loaded pieces; keep the current choice if
+  // it still exists, else fall back to the whole model.
+  function pieceLabel(key, i){ const w=S.pieceGroups.get(key); const nm=w && w.shape && w.shape.name; return nm || ('Piece '+(i+1)); }
+  function populatePivotSelect(){
+    const sel=document.getElementById('pivotSel'); if(!sel) return;
+    if (S.pivot!=='model' && !S.pieceGroups.has(S.pivot)) S.pivot='model';
+    let html='<option value="model">Whole model</option>', i=0;
+    for (const key of S.pieceGroups.keys()){ html+=`<option value="${escapeHtml(String(key))}">${escapeHtml(pieceLabel(key,i))}</option>`; i++; }
+    sel.innerHTML=html;
+    sel.value = S.pivot==='model' ? 'model' : String(S.pivot);
+  }
+
   function clearScene(){
     for (const m of S.panelMeshes){ m.geometry.dispose(); m.material.dispose(); }
     for (const m of S.stitchMeshes){ m.geometry.dispose(); m.material.dispose(); }
@@ -1206,6 +1305,7 @@
     S.pieceGroups = new Map(); S.pieceXf = new Map(); S.pieceTree = new Map();
     patternGroup.position.set(0,0,0);
     S.docName = null; S.lastData = null; S.lastName = null;
+    S.pivot = 'model'; populatePivotSelect();
     document.getElementById('empty-hint').style.display = '';
     setInfo('no pattern loaded');
     renderAssemblyPanel();
@@ -1252,8 +1352,6 @@
 
   // ── Theme ──
   // Sun icon shows in dark mode (click -> brighten); moon shows in light mode.
-  const SUN_SVG  = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
-  const MOON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
   function applyTheme(){
     document.body.classList.toggle('light', S.light);
     scene.background.set(S.light ? 0xfbfbfd : 0x0d0d1f);
@@ -1261,12 +1359,10 @@
     grid = makeGrid(); grid.visible = S.showGrid;
     scene.add(grid);
     setMenuCheck('chk-light', S.light);
-    const btn = document.getElementById('theme-btn');
-    if(btn){
-      btn.innerHTML = S.light ? MOON_SVG : SUN_SVG;
-      btn.setAttribute('aria-pressed', S.light ? 'true' : 'false');
-      btn.title = S.light ? 'Switch to dark mode' : 'Switch to light mode';
-    }
+    const lbl = document.getElementById('theme-label');
+    if(lbl) lbl.textContent = S.light ? 'Light Mode' : 'Dark Mode';
+    const tog = document.getElementById('theme-toggle');
+    if(tog) tog.setAttribute('aria-pressed', S.light ? 'true' : 'false');
   }
   function toggleTheme(){ S.light = !S.light; applyTheme(); lsSet('ls3d-theme', S.light ? 'light' : 'dark'); }
 
@@ -1387,7 +1483,7 @@
   document.getElementById('mi-stitch').onclick = e=>{ e.stopPropagation(); S.showStitches=!S.showStitches; applyStitch(); savePrefs(); };
   document.getElementById('mi-seams').onclick  = e=>{ e.stopPropagation(); S.showSeams=!S.showSeams; applySeam(); savePrefs(); };
   document.getElementById('mi-theme').onclick  = e=>{ e.stopPropagation(); toggleTheme(); };
-  document.getElementById('theme-btn').onclick  = toggleTheme;
+  document.getElementById('theme-toggle').onclick  = toggleTheme;
   document.getElementById('mi-update').onclick = ()=> checkForUpdates(true);
   document.getElementById('mi-about').onclick  = ()=> alertModal('Leather Studio 3D '+APP_VERSION+'\n\n3D preview companion to the Leather Pattern Designer.\nLoads a .lpd and previews the pieces in 3D.', 'About');
 
@@ -1480,6 +1576,9 @@
   $('asm-assembled').onclick = ()=> setAssemblyMode('assembled');
   $('asmT').oninput = ()=>{ $('asmTV').textContent = $('asmT').value+'%'; setAssembleT(parseFloat($('asmT').value)/100); };
   $('asmAngle').oninput = ()=>{ $('asmAngleV').textContent = $('asmAngle').value+'°'; setFoldAngle(parseFloat($('asmAngle').value)); };
+  // Camera pivot + framing (U3)
+  $('pivotSel').onchange = ()=>{ const v=$('pivotSel').value; S.pivot = (v==='model') ? 'model' : (pieceKeyFromStr(v) ?? 'model'); aimPivot(); };
+  $('frameBtn').onclick = frameTarget;
 
   // Push restored S values into the controls + scene at startup (idempotent —
   // with no saved prefs these equal the HTML defaults).
@@ -1547,8 +1646,9 @@
   // ── Keyboard ──
   addEventListener('keydown', e=>{
     if (e.key === 'Escape' && isHomeOpen()){ hideHome(); return; }
-    if (e.target.tagName === 'INPUT') return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     if (e.key === 'r' || e.key === 'R') resetCamera();
+    if (e.key === 'f' || e.key === 'F') frameTarget();
     if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase() === 'o'){ e.preventDefault(); homeOpen(); }
   });
 

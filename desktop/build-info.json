@@ -1,13 +1,14 @@
 {
   "_comment": "Build ledger for the packaged desktop exe. APP_VERSION (dev/working number) lives in index.html; each build mints a buildTag = two random words + -V<buildCount>. On the next build: increment buildCount, generate two fresh random words, set buildTag, then cargo tauri build. Mirrors the Leather Pattern Designer's workflow.",
-  "devVersion": "0.0.5",
-  "buildCount": 5,
-  "buildTag": "slate-vireo-V5",
+  "devVersion": "0.0.6",
+  "buildCount": 6,
+  "buildTag": "ember-shrike-V6",
   "history": [
     { "v": 1, "tag": "amber-otter-V1", "dev": "0.0.2", "date": "2026-06-07" },
     { "v": 2, "tag": "cobalt-marten-V2", "dev": "0.0.2", "date": "2026-06-07", "note": "auto-update + updater signing; first signed build" },
     { "v": 3, "tag": "russet-heron-V3", "dev": "0.0.3", "date": "2026-06-07", "note": "v0.0.3 release (CI): controls + props panel + theme/prefs persistence + welcome screen" },
     { "v": 4, "tag": "verdant-lynx-V4", "dev": "0.0.4", "date": "2026-06-08", "note": "theme toggle button (#24) + keyboard-accessible ARIA menubar (#22)" },
-    { "v": 5, "tag": "slate-vireo-V5", "dev": "0.0.5", "date": "2026-06-08", "note": "seam-aware 3D: consume v15 assembly (S0) + auto-stack from seams/layers (S1-S2) + fold to assembled preview (S3)" }
+    { "v": 5, "tag": "slate-vireo-V5", "dev": "0.0.5", "date": "2026-06-08", "note": "seam-aware 3D: consume v15 assembly (S0) + auto-stack from seams/layers (S1-S2) + fold to assembled preview (S3)" },
+    { "v": 6, "tag": "ember-shrike-V6", "dev": "0.0.6", "date": "2026-06-08", "note": "card-holder feedback U1-U5: top-right pill toggle + name/version (U1), default thickness 1mm (U2), camera focus/pivot + F shortcut (U3), stitch-hole style round/diamond/french (U4), saddle-stitch thread both faces + slant (U5)" }
   ]
 }

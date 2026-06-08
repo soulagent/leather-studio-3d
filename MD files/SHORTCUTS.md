@@ -1,5 +1,5 @@
 # Leather Studio 3D — Keyboard & Mouse Reference
-_v0.0.5_
+_v0.0.6_
 
 ---
 
@@ -13,6 +13,7 @@ _v0.0.5_
 | Scroll / pinch | Zoom (dolly to cursor) |
 | Right-drag | Pan |
 | `R` | Reset camera to home view |
+| `F` | Frame the current pivot (whole model or selected piece) to fit |
 
 ## File
 
