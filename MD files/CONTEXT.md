@@ -138,6 +138,18 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
   pattern-making); the most tractable path is a parametric catalogue of known goods. See the
   phased roadmap in CLAUDE.md and the `companion-3d-app` design note.
 
+  **DESIGNED 2026-06-08 (not yet implemented).** The data model is now specified: `.lpd` **schema
+  v15** adds a top-level `assembly` object (named seam groups of edges → N-way joins; `type`
+  stitch/fold/glue; `folds[]`; per-piece `thickness`), built on the existing **`{shape:id, edge:int}`**
+  primitive. Crucially that edge index **means the same geometry here as in the editor**, because we
+  ported the stitch-edge kernel verbatim — rect `0=top/1=right/2=bottom/3=left`, path edge `e` = seg
+  `points[e]→[e+1]`, circle = 0 edges. **Contract doc (owns the schema): `Leather Stuff/MD
+  files/SEAM-MODEL.md`.** **Our consumption design (how we fold/preview + flag problems):
+  `MD files/SEAM-CONSUMPTION.md`** — phased 2a (seam-aware flat view + problem flags, ship first) →
+  2b (rigid hinge-tree fold + assemble animation) → 2c (constrained/template close, deferred). We
+  consume `assembly` **read-only**; absent `assembly` (any pre-v15 file) → today's flat viewer
+  unchanged. Keep both docs + both loaders in sync if edge indexing or the schema ever changes.
+
 ## Backlog / TODOs
 
 - ✅ **Bezier paths** — DONE v0.0.2 (`outlinePolygon` samples cubic segments).
