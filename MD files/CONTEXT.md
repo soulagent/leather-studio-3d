@@ -128,17 +128,21 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
 
 ## The crux / known gaps (READ before planning Phase 2+)
 
-- **`.lpd` has no assembly/seam metadata.** It is a purely 2D document: cut shapes + stitch lines,
-  with **nothing** saying which edge joins which, where fold lines are, or material thickness.
-  So today we can only render **flat** panels. Folding pieces into the assembled product
-  (Phase 2), generating build instructions (Phase 3), and template validation / parametric sync
-  (Phase 4) are **all gated** on a seam/assembly data model — either a `.lpd` schema extension or
-  a sibling assembly file, plus likely seam-tagging UI added to the Pattern Designer itself.
-  **Design this data model early.** 2D→3D in general is ill-posed (it's the inverse of
-  pattern-making); the most tractable path is a parametric catalogue of known goods. See the
-  phased roadmap in CLAUDE.md and the `companion-3d-app` design note.
+- **`.lpd` assembly/seam metadata — now authored AND consumed (Phase 2a shipped in code).**
+  Historically `.lpd` was a purely 2D document (cut shapes + stitch lines, nothing saying which
+  edge joins which). As of Pattern Designer **v0.8.3** it carries a full `assembly` model, and as
+  of **S0 (this app)** we read it: `buildAssembly(data)` resolves each seam member `{shape,edge}`
+  to a directed edge polyline via the shared `sampleEdge` kernel, builds a seam **graph**
+  (nodes=pieces, arcs=seams), and derives a Tier-1 **problems** list (length-mismatch / dangling /
+  incomplete). `buildSeamOverlays()` draws Phase-2a **flat** connectors (coloured ribbons between
+  paired edges, red on problem) + dashed **fold** creases; per-piece `thickness` now drives each
+  panel's extrude depth + its stitch height. State: `S.assembly`/`S.seamMeshes`/`S.problems`/
+  `S.showSeams`. Still **flat only** — actual folding (hinge-tree, assemble animation, Tier-2 gap
+  check) is the S1–S3 stream. Folding remains 2D→3D-ill-posed in general; tractable path = hinge
+  tree for tree-structured goods, parametric catalogue for closed loops. Consume `assembly`
+  **read-only**; absent `assembly` (any pre-v15 file) → flat viewer unchanged.
 
-  **DESIGNED 2026-06-08 (not yet implemented).** The data model is now specified: `.lpd` **schema
+  **Data model spec.** `.lpd` **schema
   v15** adds a top-level `assembly` object (named seam groups of edges → N-way joins; `type`
   stitch/fold/glue; `folds[]`; per-piece `thickness`), built on the existing **`{shape:id, edge:int}`**
   primitive. Crucially that edge index **means the same geometry here as in the editor**, because we

@@ -101,6 +101,15 @@
   .p-hd.closed .p-tog{transform:rotate(-90deg)}
   .p-sec-body{overflow:hidden;max-height:1000px;padding-bottom:8px;transition:max-height .2s ease,padding .2s ease}
   .p-sec-body.closed{max-height:0;padding-bottom:0}
+  /* assembly problem rows */
+  .asm-prob{display:flex;gap:6px;align-items:flex-start;font-size:11px;line-height:1.35;
+    padding:5px 7px;margin-bottom:4px;border-radius:4px;cursor:pointer;
+    background:var(--raised);border-left:3px solid var(--text-faint);color:var(--text-2)}
+  .asm-prob:hover{color:var(--text)}
+  .asm-prob:focus-visible{outline:2px solid var(--accent-bright);outline-offset:-2px}
+  .asm-prob.length,.asm-prob.dangling{border-left-color:#e74c3c}
+  .asm-prob.incomplete{border-left-color:#f59e0b}
+  .asm-prob-ic{flex:0 0 auto;opacity:.85}
   .p-field{display:flex;align-items:center;gap:8px;margin-bottom:6px}
   .p-lbl{flex:0 0 78px;font-size:11px;color:var(--text-2)}
   .p-inp,.p-sel{
@@ -208,6 +217,7 @@
         <div class="m-act" id="mi-grid">Ground grid<span class="m-chk" id="chk-grid">&#10003;</span></div>
         <div class="m-act" id="mi-wire">Wireframe<span class="m-chk" id="chk-wire"></span></div>
         <div class="m-act" id="mi-stitch">Stitching<span class="m-chk" id="chk-stitch">&#10003;</span></div>
+        <div class="m-act" id="mi-seams">Seams &amp; folds<span class="m-chk" id="chk-seams">&#10003;</span></div>
         <div class="m-sep"></div>
         <div class="m-act" id="mi-theme">Light mode<span class="m-chk" id="chk-light"></span></div>
       </div>
@@ -266,6 +276,16 @@
           <label class="p-ck-row"><input type="checkbox" id="ckGrid" checked> Ground grid</label>
           <label class="p-ck-row"><input type="checkbox" id="ckWire"> Wireframe</label>
           <label class="p-ck-row"><input type="checkbox" id="ckStitch" checked> Stitching (holes + thread)</label>
+          <label class="p-ck-row"><input type="checkbox" id="ckSeams" checked> Seams &amp; folds</label>
+        </div>
+      </div>
+
+      <div class="p-sec" id="sec-assembly" style="display:none">
+        <div class="p-hd" id="hd-assembly"><span>Assembly</span><span class="p-tog">&#9662;</span></div>
+        <div class="p-sec-body" id="body-assembly">
+          <div class="p-note" id="asm-summary" style="margin-bottom:6px"></div>
+          <div id="asm-problems"></div>
+          <div class="p-note" style="opacity:.6;margin-top:6px">Seam connectors + fold creases from the pattern's <code>assembly</code> data. Flat preview — folding lands in a later phase.</div>
         </div>
       </div>
     </div>
@@ -327,6 +347,12 @@
     threadMesh:null,           // ref for live thread-colour change
     docName:null,
     lastData:null, lastName:null, // remembered for rebuilds (thickness change)
+    // ── Assembly model (v15, read-only — see MD files/SEAM-CONSUMPTION.md). ──
+    assembly:null,             // resolved {seams, folds, graph} from data.assembly, or null
+    seamMeshes:[],             // seam connector + fold-crease overlays (disposed in clearScene)
+    problems:[],               // derived Tier-1 issues (length-mismatch / dangling / incomplete)
+    showSeams:true,            // seam/fold overlay visibility
+    assemblyMode:'flat',       // 'flat' (Phase 2a) — folding lands in later phases
   };
 
   // Stitch defaults from the loaded .lpd's settings (per-shape values override these).
@@ -347,7 +373,7 @@
   const PREFS_KEY = 'ls3d-prefs';
   (function restorePrefs(){
     let p; try { p = JSON.parse(lsGet(PREFS_KEY)) || {}; } catch { p = {}; }
-    for (const k of ['leather','stitch','roughness','thickness','keyLight','ambient','showGrid','showStitches','wireframe'])
+    for (const k of ['leather','stitch','roughness','thickness','keyLight','ambient','showGrid','showStitches','wireframe','showSeams'])
       if (p[k] != null) S[k] = p[k];
   })();
   function savePrefs(){
@@ -356,7 +382,7 @@
       stitch:'#'+new THREE.Color(S.stitch).getHexString(),
       roughness:S.roughness, thickness:S.thickness,
       keyLight:S.keyLight, ambient:S.ambient,
-      showGrid:S.showGrid, showStitches:S.showStitches, wireframe:S.wireframe,
+      showGrid:S.showGrid, showStitches:S.showStitches, wireframe:S.wireframe, showSeams:S.showSeams,
     }));
   }
 
@@ -676,6 +702,48 @@
     if(rectRounded(s)) return stitchPath({points:roundedRectPathPts(s),closed:true,hasStitch:true,stitchMargin:s.stitchMargin,stitchSpacing:s.stitchSpacing});
     return s.type==='rect'?stitchRect(s):s.type==='circle'?stitchCircle(s):stitchPath(s);
   }
+  // Sample a single edge `e` of a shape into an ordered local-mm polyline.
+  // Edge indexing matches the editor exactly (the shared per-edge contract):
+  // rect = PLAIN corners e -> e+1 (rounded corners are ignored for edges, as in
+  // the editor's edgePathD); path edge e = the cubic points[e] -> points[(e+1)%n].
+  function sampleEdge(sh, e){
+    if(!sh || e==null || e<0) return null;
+    if(sh.type==='rect'){
+      const {x,y,w,h}=sh; if(!(w>0&&h>0)) return null;
+      const C=[{x,y},{x:x+w,y},{x:x+w,y:y+h},{x,y:y+h}];
+      if(e>3) return null;
+      return [C[e], C[(e+1)%4]];
+    }
+    if(sh.type==='path' && Array.isArray(sh.points)){
+      const n=sh.points.length, ec=shapeEdgeCount(sh);
+      if(e>=ec) return null;
+      return sampleSeg(sh.points[e], sh.points[(e+1)%n]);
+    }
+    return null; // circle / text have no addressable edges
+  }
+  function polyLength(poly){
+    let L=0; for(let i=1;i<poly.length;i++) L+=Math.hypot(poly[i].x-poly[i-1].x, poly[i].y-poly[i-1].y); return L;
+  }
+  // Resample a polyline to K+1 points evenly spaced by arc length (for seam
+  // connectors that pair corresponding points between two member edges).
+  function resampleByArcLength(poly, K){
+    if(poly.length<2) return poly.slice();
+    const total=polyLength(poly); if(total<=1e-9) return Array.from({length:K+1},()=>({...poly[0]}));
+    const out=[{...poly[0]}]; let seg=0, acc=0, segLen=Math.hypot(poly[1].x-poly[0].x, poly[1].y-poly[0].y);
+    for(let i=1;i<K;i++){
+      const target=total*i/K;
+      while(seg<poly.length-2 && acc+segLen<target){ acc+=segLen; seg++; segLen=Math.hypot(poly[seg+1].x-poly[seg].x, poly[seg+1].y-poly[seg].y); }
+      const t=segLen>1e-9 ? (target-acc)/segLen : 0;
+      out.push({ x:poly[seg].x+(poly[seg+1].x-poly[seg].x)*t, y:poly[seg].y+(poly[seg+1].y-poly[seg].y)*t });
+    }
+    out.push({...poly[poly.length-1]});
+    return out;
+  }
+  // Stable per-seam colour mirroring the editor's hsl((id*137.508) % 360, 72%, 55%).
+  function seamColor3D(id){ const c=new THREE.Color(); c.setHSL(((id*137.508)%360)/360, 0.72, 0.55); return c; }
+  // Per-piece material thickness (mm); falls back to the global thickness slider.
+  function pieceThickness(sh){ return (sh && typeof sh.thickness==='number' && sh.thickness>0) ? sh.thickness : S.thickness; }
+  const SEAM_LEN_TOL = 1.5; // mm — matches the editor's seam length-mismatch tolerance
   // ════════════════════ end ported kernel ════════════════════
 
   // ── .lpd → flat 3D panels + stitching ──────────────────────────────────
@@ -695,7 +763,7 @@
       if (sh.hidden) continue;
       const poly = outlinePolygon(sh);
       if (poly && poly.length >= 3){
-        const geo = new THREE.ExtrudeGeometry(shapeFromPolygon(poly), { depth:S.thickness, bevelEnabled:false });
+        const geo = new THREE.ExtrudeGeometry(shapeFromPolygon(poly), { depth:pieceThickness(sh), bevelEnabled:false });
         geo.rotateX(-Math.PI/2);          // lay flat: shape XY → world XZ, top at y=thickness
         geo.computeVertexNormals();
         const mesh = new THREE.Mesh(geo, leatherMaterial());
@@ -709,12 +777,17 @@
     if (holes.length)   addHoleMesh(holes);
     if (threads.length) addThreadMesh(threads);
     applyStitchVisibility();
+    buildAssembly(data);            // resolve seams/folds + Tier-1 problems (v15; no-op pre-v15)
+    buildSeamOverlays();            // Phase-2a flat connectors + fold creases
     recentrePattern();
     if (!keepCam) resetCamera();
+    renderAssemblyPanel();
     document.getElementById('empty-hint').style.display = made ? 'none' : '';
     const hp = holes.length ? ` · ${holes.length} stitch holes` : '';
+    const seamCt = S.assembly ? S.assembly.seams.length : 0;
+    const sp = seamCt ? ` · ${seamCt} seam${seamCt===1?'':'s'}` : '';
     flash(`Loaded ${made} piece${made===1?'':'s'} from ${S.docName}`);
-    setInfo(`${S.docName} · ${made} pcs${hp}`);
+    setInfo(`${S.docName} · ${made} pcs${hp}${sp}`);
     hideHome(); // a pattern is loaded — leave the welcome screen
   }
 
@@ -754,10 +827,10 @@
   function collectStitches(sh, holes, threads){
     if (sh.hidden || !sh.hasStitch) return;
     const res = stitchFor(sh); if (!res || !res.pts.length) return;
-    const P = res.pts;
-    for (const p of P) holes.push(p);
+    const P = res.pts, th = pieceThickness(sh);       // per-piece top-face height
+    for (const p of P){ p.yTop = th; holes.push(p); }
     const sp = sh.stitchSpacing ?? LP.defSpacing, tol = sp*1.8;
-    const join = (a,b)=>{ if (Math.hypot(b.x-a.x,b.y-a.y) <= tol) threads.push({a,b}); };
+    const join = (a,b)=>{ if (Math.hypot(b.x-a.x,b.y-a.y) <= tol) threads.push({a,b,yTop:th}); };
     for (let i=0;i<P.length-1;i++) join(P[i],P[i+1]);
     // close the loop for whole-perimeter shapes
     const wraps = sh.type!=='path' || sh.closed;
@@ -771,7 +844,7 @@
     const m=new THREE.InstancedMesh(geo,mat,holes.length);
     const o=new THREE.Object3D();
     for (let i=0;i<holes.length;i++){
-      o.position.set(holes[i].x, S.thickness-HOLE_H*0.25, -holes[i].y); // cylinder axis = Y → vertical
+      o.position.set(holes[i].x, (holes[i].yTop ?? S.thickness)-HOLE_H*0.25, -holes[i].y); // cylinder axis = Y → vertical
       o.rotation.set(0,0,0); o.scale.set(1,1,1); o.updateMatrix();
       m.setMatrixAt(i,o.matrix);
     }
@@ -788,7 +861,7 @@
       const ax=a.x, az=-a.y, bx=b.x, bz=-b.y;
       dir.set(bx-ax, 0, bz-az); const L=dir.length()||1; dir.normalize();
       q.setFromUnitVectors(up, dir);
-      o.position.set((ax+bx)/2, S.thickness+0.18, (az+bz)/2);
+      o.position.set((ax+bx)/2, (segs[i].yTop ?? S.thickness)+0.18, (az+bz)/2);
       o.quaternion.copy(q); o.scale.set(1,L,1); o.updateMatrix();
       m.setMatrixAt(i,o.matrix);
     }
@@ -797,6 +870,113 @@
   }
   function applyStitchVisibility(){ for (const m of S.stitchMeshes) m.visible = S.showStitches; }
   function applyStitchColor(){ if (S.threadMesh) S.threadMesh.material.color.set(S.stitch); }
+
+  // ── Assembly model: read data.assembly, resolve seam edges, build the graph ──
+  // Read-only mirror of the editor's validateSeams: dangling refs are collected
+  // into a problems list (never hidden), not silently dropped. See SEAM-CONSUMPTION.md.
+  function buildAssembly(data){
+    S.assembly = null; S.problems = [];
+    const A = data && data.assembly;
+    if (!A || typeof A !== 'object') return;            // pre-v15 file → flat viewer unchanged
+    const shapes = Array.isArray(data.shapes) ? data.shapes : [];
+    const byId = new Map(shapes.map(s => [s.id, s]));
+    const problems = [];
+    const seams = (Array.isArray(A.seams) ? A.seams : []).map(seam => {
+      const members = (seam.members || []).map(m => {
+        const sh = byId.get(m.shape);
+        const renderable = sh && !sh.hidden;
+        let poly = renderable ? sampleEdge(sh, m.edge) : null;
+        if (poly && m.reversed) poly = poly.slice().reverse();
+        return { shape:m.shape, edge:m.edge, sh, poly, len: poly?polyLength(poly):0,
+                 resolved: !!poly, hidden: !!(sh && sh.hidden), missing: !sh };
+      });
+      const resolved = members.filter(m => m.resolved);
+      const dangling = members.filter(m => !m.resolved && !m.hidden);
+      const sObj = { id:seam.id, name:seam.name||('seam '+seam.id), type:seam.type||'stitch',
+                     order: seam.order ?? null, members, resolved };
+      // Tier-1 problems (flat / geometric — no folding needed):
+      if (dangling.length)
+        problems.push({ seam:sObj.id, kind:'dangling', msg:`"${sObj.name}": ${dangling.length} edge${dangling.length>1?'s':''} no longer resolve (deleted piece/edge)` });
+      if (resolved.length < 2)
+        problems.push({ seam:sObj.id, kind:'incomplete', msg:`"${sObj.name}": needs 2+ joined edges (has ${resolved.length})` });
+      else {
+        const lens = resolved.map(m => m.len), mn=Math.min(...lens), mx=Math.max(...lens);
+        if (mx - mn > SEAM_LEN_TOL){ sObj.lengthMismatch = true;
+          problems.push({ seam:sObj.id, kind:'length', msg:`"${sObj.name}": edges differ in length (${mn.toFixed(1)}–${mx.toFixed(1)} mm) — won't sew evenly` });
+        }
+      }
+      return sObj;
+    });
+    // Folds: keep those whose piece is present + renderable.
+    const folds = (Array.isArray(A.folds) ? A.folds : []).map(f => {
+      const sh = byId.get(f.shape);
+      return { id:f.id, name:f.name||('fold '+f.id), shape:f.shape, a:f.a, b:f.b, angle:f.angle||0,
+               sh, renderable: !!(sh && !sh.hidden && f.a && f.b) };
+    });
+    // Graph: nodes = pieces touched by a usable seam; arcs = those seams.
+    const nodes = new Set(), arcs = [];
+    for (const s of seams){ if (s.resolved.length >= 2){ const ids=s.resolved.map(m=>m.shape); arcs.push({ seam:s.id, pieces:[...new Set(ids)] }); ids.forEach(id=>nodes.add(id)); } }
+    S.assembly = { seams, folds, graph:{ nodes:[...nodes], arcs }, raw:A };
+    S.problems = problems;
+  }
+
+  // Phase 2a — seam-aware FLAT overlays: a coloured connector ribbon between each
+  // seam's paired member edges (red if it has a Tier-1 problem) + dashed fold creases.
+  const SEAM_RIBBON_K = 8;
+  function buildSeamOverlays(){
+    if (!S.assembly) return;
+    const shapes = Array.isArray(S.lastData?.shapes) ? S.lastData.shapes : [];
+    let maxTh = S.thickness; for (const sh of shapes) maxTh = Math.max(maxTh, pieceThickness(sh));
+    const yLevel = maxTh + 0.6, toW = p => new THREE.Vector3(p.x, yLevel, -p.y);
+    const badSeams = new Set(S.problems.filter(p => p.kind==='length' || p.kind==='dangling').map(p => p.seam));
+    // Seam connectors
+    for (const seam of S.assembly.seams){
+      if (seam.resolved.length < 2) continue;
+      const col = badSeams.has(seam.id) ? new THREE.Color(0xe74c3c) : seamColor3D(seam.id);
+      const ref = resampleByArcLength(seam.resolved[0].poly, SEAM_RIBBON_K);
+      const verts = [];
+      for (let k=1; k<seam.resolved.length; k++){
+        const other = resampleByArcLength(seam.resolved[k].poly, SEAM_RIBBON_K);
+        for (let i=0;i<ref.length;i++){ const a=toW(ref[i]), b=toW(other[i]); verts.push(a.x,a.y,a.z, b.x,b.y,b.z); }
+      }
+      if (!verts.length) continue;
+      const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
+      const m = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color:col }));
+      m.visible = S.showSeams; patternGroup.add(m); S.seamMeshes.push(m);
+    }
+    // Fold creases (dashed violet on the owning piece's top face)
+    for (const f of S.assembly.folds){
+      if (!f.renderable) continue;
+      const th = pieceThickness(f.sh) + 0.2;
+      const a=new THREE.Vector3(f.a.x, th, -f.a.y), b=new THREE.Vector3(f.b.x, th, -f.b.y);
+      const g = new THREE.BufferGeometry().setFromPoints([a,b]);
+      const m = new THREE.Line(g, new THREE.LineDashedMaterial({ color:0xa78bfa, dashSize:2.5, gapSize:1.6 }));
+      m.computeLineDistances(); m.visible = S.showSeams; patternGroup.add(m); S.seamMeshes.push(m);
+    }
+  }
+  function applySeamVisibility(){ for (const m of S.seamMeshes) m.visible = S.showSeams; }
+  function escapeHtml(s){ return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+  // Assembly props section: seam/fold summary + the Tier-1 Problems list.
+  function renderAssemblyPanel(){
+    const sec=document.getElementById('sec-assembly'); if(!sec) return;
+    const A=S.assembly, ps=S.problems||[];
+    const seamCt=A?A.seams.length:0, foldCt=A?A.folds.length:0;
+    sec.style.display = (seamCt||foldCt||ps.length) ? '' : 'none';
+    const sum=document.getElementById('asm-summary');
+    if(sum) sum.textContent = A
+      ? `${seamCt} seam${seamCt===1?'':'s'} · ${foldCt} fold${foldCt===1?'':'s'} · ${A.graph.nodes.length} joined piece${A.graph.nodes.length===1?'':'s'}`
+      : 'No assembly data in this file.';
+    const list=document.getElementById('asm-problems');
+    if(list){
+      list.innerHTML = ps.length
+        ? ps.map((p,i)=>`<div class="asm-prob ${p.kind}" role="button" tabindex="0" data-i="${i}" aria-label="${escapeHtml(p.msg)}"><span class="asm-prob-ic">&#9888;</span><span>${escapeHtml(p.msg)}</span></div>`).join('')
+        : (A ? '<div class="p-note" style="opacity:.7">No problems detected.</div>' : '');
+      list.querySelectorAll('.asm-prob').forEach(el=>{
+        el.onclick=()=>{ const p=ps[+el.dataset.i]; if(p) flash(p.msg); };  // camera-focus lands in a later phase
+        el.addEventListener('keydown', kbActivate);
+      });
+    }
+  }
 
   // Centre the loaded pattern over the origin so the camera framing is sane.
   function recentrePattern(){
@@ -809,11 +989,14 @@
   function clearScene(){
     for (const m of S.panelMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
     for (const m of S.stitchMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
+    for (const m of S.seamMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
     S.panelMeshes = []; S.stitchMeshes = []; S.threadMesh = null;
+    S.seamMeshes = []; S.assembly = null; S.problems = [];
     patternGroup.position.set(0,0,0);
     S.docName = null; S.lastData = null; S.lastName = null;
     document.getElementById('empty-hint').style.display = '';
     setInfo('no pattern loaded');
+    renderAssemblyPanel();
   }
 
   // Full rebuild from the remembered doc, keeping the camera (for thickness change).
@@ -990,6 +1173,7 @@
   document.getElementById('mi-grid').onclick   = e=>{ e.stopPropagation(); S.showGrid=!S.showGrid; applyGrid(); savePrefs(); };
   document.getElementById('mi-wire').onclick   = e=>{ e.stopPropagation(); S.wireframe=!S.wireframe; setMenuCheck('chk-wire',S.wireframe); document.getElementById('ckWire').checked=S.wireframe; applyMaterials(); savePrefs(); };
   document.getElementById('mi-stitch').onclick = e=>{ e.stopPropagation(); S.showStitches=!S.showStitches; applyStitch(); savePrefs(); };
+  document.getElementById('mi-seams').onclick  = e=>{ e.stopPropagation(); S.showSeams=!S.showSeams; applySeam(); savePrefs(); };
   document.getElementById('mi-theme').onclick  = e=>{ e.stopPropagation(); toggleTheme(); };
   document.getElementById('theme-btn').onclick  = toggleTheme;
   document.getElementById('mi-update').onclick = ()=> checkForUpdates(true);
@@ -1034,6 +1218,11 @@
     setMenuCheck('chk-stitch', S.showStitches);
     document.getElementById('ckStitch').checked = S.showStitches;
   }
+  function applySeam(){
+    applySeamVisibility();
+    setMenuCheck('chk-seams', S.showSeams);
+    document.getElementById('ckSeams').checked = S.showSeams;
+  }
 
   // ── Props panel wiring ──
   const $ = id => document.getElementById(id);
@@ -1073,6 +1262,7 @@
   $('ckGrid').onchange = ()=>{ S.showGrid=$('ckGrid').checked; applyGrid(); savePrefs(); };
   $('ckWire').onchange = ()=>{ S.wireframe=$('ckWire').checked; setMenuCheck('chk-wire',S.wireframe); applyMaterials(); savePrefs(); };
   $('ckStitch').onchange = ()=>{ S.showStitches=$('ckStitch').checked; applyStitch(); savePrefs(); };
+  $('ckSeams').onchange = ()=>{ S.showSeams=$('ckSeams').checked; applySeam(); savePrefs(); };
 
   // Push restored S values into the controls + scene at startup (idempotent —
   // with no saved prefs these equal the HTML defaults).
@@ -1085,7 +1275,8 @@
     $('lightKey').value = S.keyLight; $('lightKeyV').textContent = (+S.keyLight).toFixed(2);
     $('lightAmb').value = S.ambient;  $('lightAmbV').textContent = (+S.ambient).toFixed(2);
     $('ckGrid').checked = S.showGrid; $('ckWire').checked = S.wireframe; $('ckStitch').checked = S.showStitches;
-    applyGrid(); applyLighting(); applyStitch();
+    $('ckSeams').checked = S.showSeams;
+    applyGrid(); applyLighting(); applyStitch(); applySeam();
   })();
 
   // ── Resizable properties panel (drag handle + persisted width; mirrors LPD) ──

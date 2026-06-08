@@ -5,6 +5,37 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## (unreleased) — S0: consume the v15 assembly model (Phase 2a foundation) (2026-06-08)
+
+First step of the 3D auto-stacking stream (S0–S4). **Code + smoke only — version stays v0.0.4
+until the stream ships at S4** (no release yet). Reads the Pattern Designer's `assembly` model
+(`.lpd` schema v15) read-only; absent `assembly` (any pre-v15 file) → the flat viewer is unchanged.
+
+- **Edge kernel** — `sampleEdge(sh, e)` samples one edge into a local-mm polyline using the *same*
+  per-edge contract as the editor (rect = plain corners `e→e+1`; path edge `e` = cubic
+  `points[e]→[e+1]`; circle/text = no edges), so seam geometry matches stitch geometry by
+  construction. Plus `polyLength`, `resampleByArcLength`, `seamColor3D` (mirrors the editor's stable
+  per-seam hue), `pieceThickness`.
+- **`buildAssembly(data)`** — resolves each seam member `{shape,edge}` to a polyline (honours
+  `reversed`), builds the seam **graph** (nodes = joined pieces, arcs = seams; N-way aware), and a
+  read-only mirror of `validateSeams`: collects **Tier-1 problems** into `S.problems` —
+  `length`-mismatch (>1.5 mm), `dangling` reference (deleted piece/edge), `incomplete` seam (<2
+  resolved edges). Never hides bad refs; reports them.
+- **`buildSeamOverlays()`** — Phase-2a **flat** view: a coloured **connector ribbon** between each
+  seam's paired member edges (red when the seam has a Tier-1 problem) + dashed **violet fold creases**
+  on their pieces. New state `S.assembly` / `S.seamMeshes` / `S.problems` / `S.showSeams`
+  (`assemblyMode:'flat'`); meshes disposed in `clearScene`.
+- **Per-piece thickness** — `sh.thickness` (mm) now drives each panel's extrude depth and its stitch
+  hole/thread height (falls back to the global thickness slider).
+- **UI** — a new **Assembly** props section (seam/fold/joined-piece summary + a Tier-1 **Problems**
+  list, `role=button` rows, click → flash) + a **Seams & folds** toggle (View menu + Scene checkbox,
+  persisted to prefs).
+- **Smoke** — new `assembly` feature (25 asserts: edge sampling/length, per-piece thickness, seam
+  resolution + graph, all three problem kinds, overlay meshes, panel rendering, absent-assembly
+  no-op, clearScene reset). App suite **36 → 61**; build smoke **36/36**.
+
+---
+
 ## v0.0.4 — theme toggle button + keyboard-accessible menubar (2026-06-08)
 
 Finishes the two v0.0.3 carry-forwards (#24, #22).

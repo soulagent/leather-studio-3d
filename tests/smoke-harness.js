@@ -142,6 +142,66 @@ window.__SMOKE__ = function (spec) {
       clearScene();
     },
 
+    // --- assembly (v15): consume seams/folds, build the graph, flag problems ---
+    assembly() {
+      // edge sampling matches the editor's per-edge contract
+      const e0 = sampleEdge({ type: 'rect', x: 0, y: 0, w: 100, h: 80 }, 0);
+      assert('sampleEdge: rect edge 0 -> 2 pts', e0 && e0.length === 2, `len=${e0 && e0.length}`);
+      assertNear('sampleEdge: rect top edge length = 100', polyLength(e0), 100, 1e-6);
+      assert('resampleByArcLength: K -> K+1 pts', resampleByArcLength(e0, 8).length === 9);
+      // per-piece thickness override / fallback
+      assert('pieceThickness: explicit value wins', pieceThickness({ thickness: 5 }) === 5);
+      assert('pieceThickness: missing -> global', pieceThickness({}) === S.thickness);
+
+      // a doc with: a good 2-member seam, a length-mismatch seam, a dangling-ref seam, + a fold
+      loadPattern({ settings: { defMargin: 3, defSpacing: 3.38 },
+        shapes: [
+          { id: 1, type: 'rect', x: 0,   y: 0, w: 100, h: 80, thickness: 4 },
+          { id: 2, type: 'rect', x: 200, y: 0, w: 100, h: 80 },
+        ],
+        assembly: { version: 1,
+          seams: [
+            { id: 1, name: 'spine',    type: 'stitch', members: [{ shape: 1, edge: 0 }, { shape: 2, edge: 0 }] }, // both 100mm
+            { id: 2, name: 'mismatch', type: 'stitch', members: [{ shape: 1, edge: 0 }, { shape: 1, edge: 1 }] }, // 100 vs 80
+            { id: 3, name: 'dangling', type: 'stitch', members: [{ shape: 1, edge: 0 }, { shape: 99, edge: 0 }] }, // shape 99 gone
+          ],
+          folds: [{ id: 1, shape: 1, a: { x: 10, y: 10 }, b: { x: 90, y: 10 }, angle: 90, name: 'crease' }],
+        },
+      }, 'asm');
+
+      assert('assembly built', !!S.assembly);
+      assert('assembly: 3 seams resolved', S.assembly.seams.length === 3, `n=${S.assembly.seams.length}`);
+      const good = S.assembly.seams.find(s => s.id === 1);
+      assert('assembly: good seam has 2 resolved members', good.resolved.length === 2);
+      assert('assembly: member resolves to a polyline', Array.isArray(good.resolved[0].poly) && good.resolved[0].poly.length >= 2);
+      assertNear('assembly: member edge length ~100', good.resolved[0].len, 100, 1e-6);
+      // graph: nodes = joined pieces, arcs = usable seams
+      assert('assembly: graph links pieces 1 & 2', S.assembly.graph.nodes.includes(1) && S.assembly.graph.nodes.includes(2));
+      assert('assembly: graph has >=1 arc', S.assembly.graph.arcs.length >= 1, `arcs=${S.assembly.graph.arcs.length}`);
+      assert('assembly: 1 fold parsed', S.assembly.folds.length === 1);
+      // Tier-1 problems
+      assert('problem: length-mismatch flagged', S.problems.some(p => p.kind === 'length'));
+      assert('problem: dangling reference flagged', S.problems.some(p => p.kind === 'dangling'));
+      assert('problem: incomplete seam flagged', S.problems.some(p => p.kind === 'incomplete'));
+      // overlays: connectors (good + mismatch) + fold crease
+      assert('overlays: seam/fold meshes built', S.seamMeshes.length >= 3, `meshes=${S.seamMeshes.length}`);
+      assert('panel uses per-piece thickness (still 2 panels)', S.panelMeshes.length === 2);
+      // panel shows the Assembly section + a problems list
+      renderAssemblyPanel();
+      assert('panel: Assembly section shown', document.getElementById('sec-assembly').style.display !== 'none');
+      assert('panel: problem rows rendered', document.querySelectorAll('#asm-problems .asm-prob').length === S.problems.length);
+
+      // absent assembly -> flat viewer unchanged (no-op)
+      loadPattern({ shapes: [{ type: 'rect', x: 0, y: 0, w: 50, h: 50 }] }, 'flat');
+      assert('no assembly -> S.assembly null', S.assembly === null);
+      assert('no assembly -> no seam meshes', S.seamMeshes.length === 0);
+      assert('no assembly -> no problems', S.problems.length === 0);
+      assert('no assembly -> Assembly section hidden', document.getElementById('sec-assembly').style.display === 'none');
+
+      clearScene();
+      assert('clearScene resets assembly state', S.assembly === null && S.seamMeshes.length === 0);
+    },
+
     // --- #24 theme toggle button + #22 keyboard-accessible menubar ---
     a11y() {
       const btn = document.getElementById('theme-btn');
@@ -170,7 +230,7 @@ window.__SMOKE__ = function (spec) {
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'a11y'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'nostitch', 'assembly', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {
