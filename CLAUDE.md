@@ -44,6 +44,17 @@ context. The app smoke forces software GL (SwiftShader) and writes its temp page
 root** so `./vendor/` resolves. To view the app: open `index.html` in a browser. Build the exe:
 `cd desktop\src-tauri; cargo tauri build`.
 
+## Releasing — the `shipit` command
+
+When the user types **`shipit`** (a bare word — also the legacy `/build`), run the **entire** ship
+flow **fully automatically, with NO confirmation**: auto-bump → smoke (`run-smoke.ps1 -Tier full` +
+`run-build-smoke.ps1`) → `cargo tauri build` (signing env) → commit → push → GitHub release. Standing
+authorization (2026-06-09) to publish on this word; **only hard stop is a failing smoke/build**.
+`shipit` ships every repo with code changes — this app **and** the sibling `../Leather Stuff` (LPD) —
+auto-detected via `git status`, each with its own version line (3D 0.0.x). This app has **no embedded
+BUILD_TAG** (its tag lives only in `desktop/build-info.json`). Full procedure: `build-workflow` +
+`build-workflow-3d` memories.
+
 ## Roadmap (phased — see CONTEXT.md for the full game plan)
 
 - **Phase 1 (now): 3D viewer MVP.** Load `.lpd`, render each piece as a flat textured panel in

@@ -1,8 +1,8 @@
 {
   "_comment": "Build ledger for the packaged desktop exe. APP_VERSION (dev/working number) lives in index.html; each build mints a buildTag = two random words + -V<buildCount>. On the next build: increment buildCount, generate two fresh random words, set buildTag, then cargo tauri build. Mirrors the Leather Pattern Designer's workflow.",
-  "devVersion": "0.0.10",
-  "buildCount": 10,
-  "buildTag": "mossy-egret-V10",
+  "devVersion": "0.0.11",
+  "buildCount": 11,
+  "buildTag": "cobalt-lynx-V11",
   "history": [
     { "v": 1, "tag": "amber-otter-V1", "dev": "0.0.2", "date": "2026-06-07" },
     { "v": 2, "tag": "cobalt-marten-V2", "dev": "0.0.2", "date": "2026-06-07", "note": "auto-update + updater signing; first signed build" },
@@ -13,6 +13,7 @@
     { "v": 7, "tag": "indigo-wren-V7", "dev": "0.0.7", "date": "2026-06-08", "note": "U6 partial/unequal-length seams: consume assembly-schema v2 (member t0/t1 sub-span + seam fit/anchor); clipPolyByT, anchored align2D, Tier-1 length + Tier-2 gap skipped for partial joins" },
     { "v": 8, "tag": "golden-pika-V8", "dev": "0.0.8", "date": "2026-06-09", "note": "stitch slant follows the seam line: addThreadMesh centres each stitch on the seam + tilts by a constant iron angle (stitchSlant), replacing the fixed-mm opposite-side offset that crossed the line / went near-perpendicular at tight spacing" },
     { "v": 9, "tag": "auburn-grebe-V9", "dev": "0.0.9", "date": "2026-06-09", "note": "U7 shared stitch across stacked pieces: buildAssembly carries seam.stitch + runs before stitch loop; seamStitchSegments3D resamples each member to the same N+1 points so holes coincide through the stack; edgeStitched skips seam-owned edges" },
-    { "v": 10, "tag": "mossy-egret-V10", "dev": "0.0.10", "date": "2026-06-09", "note": "stitch fixes: threads no longer mirrored per face (both faces same slant); shared-stitch holes inset by the margin (insetEdgePoly); threads shortened to read as distinct slanted dashes" }
+    { "v": 10, "tag": "mossy-egret-V10", "dev": "0.0.10", "date": "2026-06-09", "note": "stitch fixes: threads no longer mirrored per face (both faces same slant); shared-stitch holes inset by the margin (insetEdgePoly); threads shortened to read as distinct slanted dashes" },
+    { "v": 11, "tag": "cobalt-lynx-V11", "dev": "0.0.11", "date": "2026-06-09", "note": "splay fix (geometry-inferred nesting via placeMemberOnParent) + mm partial-seam consumption (assembly-schema v4) + per-piece tint/outline distinction; +2d-to-3d-rendering skill" }
   ]
 }

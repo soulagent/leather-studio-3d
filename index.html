@@ -366,7 +366,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.10';
+  const APP_VERSION = 'v0.0.11';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -378,6 +378,7 @@
     keyLight:1.5, ambient:0.6,
     showGrid:true, wireframe:false, showStitches:true,
     panelMeshes:[],            // current pattern's panel meshes (for clear/rematerial)
+    outlineMeshes:[],          // per-panel silhouette outlines (piece separation)
     stitchMeshes:[],           // hole + thread instanced meshes
     threadMesh:null,           // ref for live thread-colour change
     docName:null,
@@ -526,6 +527,23 @@
       color:S.leather, roughness:S.roughness, metalness:0.0,
       side:THREE.DoubleSide, wireframe:S.wireframe,
     });
+  }
+  // Per-piece tint so stacked pieces read apart without leaving the leather palette: a subtle,
+  // deterministic lightness zig-zag (+ a hair of hue drift) off the base colour, keyed by piece index.
+  const TINT_STEPS = [0, 0.10, -0.10, 0.17, -0.17, 0.24, -0.24, 0.31, -0.31];
+  function pieceTint(idx){
+    const c = new THREE.Color(S.leather), hsl = {}; c.getHSL(hsl);
+    const dl = TINT_STEPS[((idx%TINT_STEPS.length)+TINT_STEPS.length)%TINT_STEPS.length];
+    const dh = (((idx*0.017)%0.07)+0.07)%0.07 - 0.035;
+    c.setHSL((hsl.h+dh+1)%1, hsl.s, Math.max(0.1, Math.min(0.85, hsl.l*(1+dl))));
+    return c;
+  }
+  // A crisp dark silhouette/perimeter outline for one panel, posed with its piece group.
+  function addPanelOutline(geo, group, tint){
+    const eg = new THREE.EdgesGeometry(geo, 28);                  // 28deg → silhouette + face perimeter, not facets
+    const col = tint.clone(); const hsl={}; col.getHSL(hsl); col.setHSL(hsl.h, hsl.s, hsl.l*0.32);
+    const ln = new THREE.LineSegments(eg, new THREE.LineBasicMaterial({ color:col }));
+    group.add(ln); S.outlineMeshes.push(ln);
   }
 
   // ════════════════════════════════════════════════════════════════════════
@@ -892,8 +910,11 @@
         geo.rotateX(-Math.PI/2);          // lay flat: shape XY → world XZ, top at y=thickness
         geo.computeVertexNormals();
         const mesh = new THREE.Mesh(geo, leatherMaterial());
+        const tint = pieceTint(made);
+        mesh.material.color.copy(tint); mesh.userData.tintIdx = made;
         mesh.castShadow = true; mesh.receiveShadow = true;
         pg.add(mesh); S.panelMeshes.push(mesh);
+        addPanelOutline(geo, pg, tint);
         made++;
       }
       const holes = [], threads = [];
@@ -1050,6 +1071,25 @@
   function applyStitchVisibility(){ for (const m of S.stitchMeshes) m.visible = S.showStitches; }
   function applyStitchColor(){ for (const m of S.threadMeshes) m.material.color.set(S.stitch); }
 
+  // ── mm partial joins (assembly-schema v4) ──────────────────────────────────
+  // A partial seam's run LENGTH = the shortest ("mating") member edge; each member places that run
+  // on its edge via `offset` mm from a reference end (`from`). Mirrors the editor's memberSpan. Falls
+  // back to legacy t0/t1 fractions. Returns the sub-span as {t0,t1} fractions of this member's edge.
+  function edgeLenMM3D(sh, e){ const p = sampleEdge(sh, e); return p ? polyLength(p) : 0; }
+  function seamRunLenMM3D(seam, byId){
+    let L = Infinity;
+    for (const m of (seam.members || [])){ const sh = byId.get(m.shape); if (!sh || sh.hidden) continue;
+      const e = edgeLenMM3D(sh, m.edge); if (e > 1e-6) L = Math.min(L, e); }
+    return isFinite(L) ? L : 0;
+  }
+  function memberSpan3D(seam, m, sh, runMM){
+    if (m.offset == null && (m.t0 != null || m.t1 != null)) return { t0:m.t0 ?? 0, t1:m.t1 ?? 1 };  // legacy
+    const edgeLen = edgeLenMM3D(sh, m.edge) || 1;
+    const run = Math.min(runMM, edgeLen);
+    const off = Math.max(0, Math.min(edgeLen - run, m.offset || 0));
+    if (m.from === 'end'){ const t1 = 1 - off/edgeLen; return { t0:Math.max(0, t1 - run/edgeLen), t1 }; }
+    const t0 = off/edgeLen; return { t0, t1:Math.min(1, t0 + run/edgeLen) };
+  }
   // ── Assembly model: read data.assembly, resolve seam edges, build the graph ──
   // Read-only mirror of the editor's validateSeams: dangling refs are collected
   // into a problems list (never hidden), not silently dropped. See SEAM-CONSUMPTION.md.
@@ -1062,11 +1102,16 @@
     const problems = [];
     const seams = (Array.isArray(A.seams) ? A.seams : []).map(seam => {
       const partial = seam.fit === 'partial';                       // U6 — intentional unequal/sub-span join
+      const runMM = partial ? seamRunLenMM3D(seam, byId) : 0;        // auto length = mating edge
       const members = (seam.members || []).map(m => {
         const sh = byId.get(m.shape);
         const renderable = sh && !sh.hidden;
         let poly = renderable ? sampleEdge(sh, m.edge) : null;
-        if (poly && (m.t0 != null || m.t1 != null)) poly = clipPolyByT(poly, m.t0, m.t1);  // U6 sub-span
+        if (poly){                                                   // U6/mm sub-span clip
+          const sp = partial ? memberSpan3D(seam, m, sh, runMM)
+                   : (m.t0 != null || m.t1 != null) ? { t0:m.t0 ?? 0, t1:m.t1 ?? 1 } : null;
+          if (sp && (sp.t0 > 1e-4 || sp.t1 < 1 - 1e-4)) poly = clipPolyByT(poly, sp.t0, sp.t1);
+        }
         if (poly && m.reversed) poly = poly.slice().reverse();
         return { shape:m.shape, edge:m.edge, sh, poly, len: poly?polyLength(poly):0,
                  resolved: !!poly, hidden: !!(sh && sh.hidden), missing: !sh };
@@ -1123,6 +1168,43 @@
     const Rp = anchor==='end' ? RA1 : RA0, Mp = anchor==='end' ? MB1 : MB0;
     return { theta, tx: Rp.x-(c*Mp.x - s*Mp.y), ty: Rp.y-(s*Mp.x + c*Mp.y), dy:0 };
   }
+  // Centroid of a piece's outline in its own mm plane (averaged outline vertices — enough
+  // for a which-side-of-the-seam test). Cached per shape id. Falls back to null for
+  // edgeless/empty shapes (text), where the side test is skipped.
+  const _centroidCache = new Map();
+  function pieceCentroid(sh){
+    if (!sh) return null;
+    if (sh.id!=null && _centroidCache.has(sh.id)) return _centroidCache.get(sh.id);
+    const poly = outlinePolygon(sh);
+    let c = null;
+    if (poly && poly.length){ let sx=0, sy=0; for (const p of poly){ sx+=p.x; sy+=p.y; } c={ x:sx/poly.length, y:sy/poly.length }; }
+    if (sh.id!=null) _centroidCache.set(sh.id, c);
+    return c;
+  }
+  // Side of the directed line A->B that point P lies on (sign of the 2D cross product).
+  function sideOfLine(A, B, P){ return Math.sign((B.x-A.x)*(P.y-A.y) - (B.y-A.y)*(P.x-A.x)); }
+  // Place a moving member's piece onto an already-posed parent member. There are exactly TWO
+  // rigid edge-matches (the chord mapped start->start or start->end); they put the moving BODY on
+  // OPPOSITE sides of the seam line. We pick the one that nests — moving-piece centroid on the SAME
+  // side as the parent's — so antiparallel edge winding (e.g. a pen path mated to a rect) can't flip
+  // a piece out to the wrong side. Pure 2D-data geometry; no authored hint needed. (Fixes the
+  // splayed-stack bug — see DEVLOG.) Falls back to the direction-matched solve when no side info.
+  function placeMemberOnParent(pm, mov, refXf, anchor){
+    const xfA = align2D(pm.poly, mov.poly, refXf, anchor);
+    const revAnchor = anchor==='end' ? 'start' : anchor==='start' ? 'end' : null;
+    const xfB = align2D(pm.poly, mov.poly.slice().reverse(), refXf, revAnchor);
+    const A = applyXf2D(refXf, pm.poly[0]), B = applyXf2D(refXf, pm.poly[pm.poly.length-1]);
+    const pc = pieceCentroid(pm.sh), mc = pieceCentroid(mov.sh);
+    if (pc && mc){
+      const parentSide = sideOfLine(A, B, applyXf2D(refXf, pc));
+      if (parentSide!==0){
+        const aOK = sideOfLine(A, B, applyXf2D(xfA, mc))===parentSide;
+        const bOK = sideOfLine(A, B, applyXf2D(xfB, mc))===parentSide;
+        if (bOK && !aOK) return xfB;   // only B nests → use the reversed edge-match
+      }
+    }
+    return xfA;                        // A nests (or tie / no centroid) → direction-matched solve
+  }
   // S2 — whole seam-graph positioning. BFS from a root (most-connected) piece over the
   // seam adjacency: each newly reached piece snaps its mated edge onto its already-placed
   // parent, stacked in Y by global LAYER order (touching, by thickness). Handles N-way
@@ -1167,7 +1249,7 @@
             let dy=pXf.dy;
             if (j>pi) for(let t=pi;t<j;t++) dy+=thick(ordered[t].shape);
             else      for(let t=j;t<pi;t++) dy-=thick(ordered[t].shape);
-            const xf = align2D(pm.poly, m.poly, pXf, seam.fit==='partial' ? seam.anchor : null); xf.dy = dy;
+            const xf = placeMemberOnParent(pm, m, pXf, seam.fit==='partial' ? seam.anchor : null); xf.dy = dy;
             S.pieceXf.set(m.shape, xf); visited.add(m.shape); remaining.delete(m.shape);
             // Hinge for assembled mode: child folds about its PARENT's shared edge (the seam line),
             // expressed in the parent's local geometry frame, at the parent's top face.
@@ -1403,12 +1485,14 @@
 
   function clearScene(){
     for (const m of S.panelMeshes){ m.geometry.dispose(); m.material.dispose(); }
+    for (const m of S.outlineMeshes){ m.geometry.dispose(); m.material.dispose(); }
     for (const m of S.stitchMeshes){ m.geometry.dispose(); m.material.dispose(); }
     for (const m of S.seamMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
     for (const w of S.pieceGroups.values()) patternGroup.remove(w.group);
-    S.panelMeshes = []; S.stitchMeshes = []; S.threadMeshes = [];
+    S.panelMeshes = []; S.outlineMeshes = []; S.stitchMeshes = []; S.threadMeshes = [];
     S.seamMeshes = []; S.assembly = null; S.problems = [];
     S.pieceGroups = new Map(); S.pieceXf = new Map(); S.pieceTree = new Map();
+    _centroidCache.clear();   // shape ids repeat across files — don't carry stale centroids
     patternGroup.position.set(0,0,0);
     S.docName = null; S.lastData = null; S.lastName = null;
     S.pivot = 'model'; populatePivotSelect();
@@ -1440,7 +1524,7 @@
   // ── Re-apply material / lighting / scene settings live ──
   function applyMaterials(){
     for (const m of S.panelMeshes){
-      m.material.color.set(S.leather);
+      m.material.color.copy(pieceTint(m.userData.tintIdx || 0));   // keep the per-piece tint on a base-colour change
       m.material.roughness = S.roughness;
       m.material.wireframe = S.wireframe;
       m.material.needsUpdate = true;

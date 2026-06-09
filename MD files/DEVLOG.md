@@ -5,6 +5,74 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.11 — splay fix + mm partial seams + piece distinction (2026-06-09)
+
+Three things this session (paired with LPD v0.8.8): the wrong-side stack fix, consuming the editor's
+new **mm** partial-seam model, and making stacked pieces tell apart.
+
+### A. mm partial-seam consumption (assembly-schema v4)
+
+The editor replaced arbitrary `t0`/`t1` fraction sub-spans with **mm**: a partial seam's run length
+**auto-derives = the shortest ("mating") member edge**, and each member positions that run via
+`offset` mm from a reference end (`from`). New `memberSpan3D` / `seamRunLenMM3D` / `edgeLenMM3D` in
+`buildAssembly` resolve a member to its `{t0,t1}` clip from the mm fields, with a **legacy fallback**
+(a member carrying `t0`/`t1` and no `offset` uses the old fractions, so pre-v4 files still load).
+Note the new semantics: in a partial seam a member with **no** offset now joins its first *run* mm
+(the mating length), not its whole edge — the intended "true-length" behaviour. `partialseams` smoke
+gains 4 mm asserts (auto run = 50mm mating edge; offset 25 slides the run to [25,75]).
+
+### B. Piece distinction (user: hard to tell pieces apart)
+
+Each panel gets a **deterministic per-piece tint** (subtle HSL lightness zig-zag + hue drift off the
+base leather, keyed by piece index; stored on the mesh so a base-colour re-material re-applies it,
+not resets to flat) **+ a dark silhouette outline** (`EdgesGeometry(geo, 28°)` → `LineSegments` in the
+piece group, tracked in `S.outlineMeshes`, disposed on clear). `load` smoke gains 3 distinction
+asserts. App smoke **129 → 136**.
+
+### C. Captured the 2D→3D rules as a skill
+
+New `.claude/skills/2d-to-3d-rendering/SKILL.md` — frame convention (extrude, don't reflect), the
+nesting/winding invariant + same-side centroid test, mm partial spans, the pen-path `cp*`-handle NaN
+gotcha, and the tint/outline trick. Stack-independent geometry, both apps.
+
+---
+
+### (original entry) fix wrong-side / splayed stack (geometry-inferred nesting)
+
+The `SampleCardHolder` assembled with pieces **splayed out** and seam connectors crossing (the
+T‑pocket flung to the wrong side) instead of nesting — see `Weird3DRender.png` vs `IntendedStack.png`
+in the LPD repo root. **Root cause (diagnosed by hand-tracing all three seams):** `align2D` snaps a
+child's seam edge onto its parent's by rotating the child's edge **direction** to match — so when two
+mated edges are wound **antiparallel** (a pen path mated to a rect, e.g. T‑pocket edge 6 runs `−Y`
+against the back panel's right edge `+Y`), it inserts a spurious **180° rotation** that flips the
+child's *body* to the wrong side of the seam line. Seam 1 (both rect "bottom" edges, same direction)
+worked by luck → `θ=0`; seams 2/3 (pen-path edges) → `θ=π` → splay. The old `stacking` smoke only
+checked endpoint *coincidence*, which is true even when the body is flipped — so it never caught it.
+
+**This is NOT the "flipped render / showing the back face" theory from v0.0.10's carry-forward.** That
+was two separate bugs conflated: the splay is purely a 2D winding/`align2D` issue (this fix); the
+`world Z = −shape Y` reflection (det −1, which mirrors the stitch slant) is a *separate* axis, deferred
+to the next step (no‑Y‑flip "straight extrusion" refactor — see Backlog).
+
+- **Fix lives in the 3D consumer** (per user: the 3D trusts the 2D data and is smart enough to render
+  it — no editor change, no re-saving `.lpd`). New `placeMemberOnParent(pm, mov, refXf, anchor)`:
+  there are exactly **two** rigid edge-matches (chord start→start vs start→end) and they put the moving
+  body on **opposite** sides of the seam line. We compute both and pick the one whose **piece centroid**
+  lands on the **same side** as the parent's centroid (it *nests*). `align2D` itself is unchanged;
+  `computePieceTransforms` calls the chooser instead. Geometry-only side test (`pieceCentroid` cached
+  per shape id, cleared on load; `sideOfLine` cross-product) — robust to any authored winding.
+- The existing two-identical-rects `stacking` case keeps `θ=π` **correctly** (mirror-symmetric rects —
+  the 180° *is* the right stack), proving the side test discriminates flip-needed from flip-splays.
+- **Smoke 127 → 129**: new `splay-guard` asserts an antiparallel **pen-path** mate nests without a
+  180° flip (`θ≈0`) and the child body lands inside the parent footprint. (Test fixture's path points
+  carry `cp*` handles = anchor, or `cubicPt` reads `undefined` → NaN — a real .lpd authoring detail.)
+
+**Carry-forward (next step):** the no‑Y‑flip frame refactor (straight extrusion of the flat template +
+camera re-aim) — fixes the stitch-slant mirror (v0.0.10 Task 2). Then capture the whole thing as a
+reusable **2D→3D rendering** skill (frame convention + nesting/winding invariant + pen-path gotcha).
+
+---
+
 ## v0.0.10 — stitch fixes: un-mirror faces + margin inset + distinct stitches (2026-06-09)
 
 User feedback after U7: the saddle stitch still looked wrong. Three fixes (paired with LPD v0.8.7):

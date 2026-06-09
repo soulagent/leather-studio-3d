@@ -1,5 +1,5 @@
 # Leather Studio 3D — Session Context
-_Last updated: 2026-06-09 · Current version: v0.0.10 · Reads .lpd (Pattern Designer save format v15, assembly-schema v3; seams/folds + partial joins + shared stitch consumed)_
+_Last updated: 2026-06-09 · Current version: v0.0.11 · Reads .lpd (Pattern Designer save format v15, assembly-schema v3; seams/folds + partial joins + shared stitch consumed)_
 
 ---
 
@@ -206,15 +206,21 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
    - **U7 stitching across stacked pieces** (cross-app, big): align stitch holes through the
      stacked/grouped layers so a card holder's stitching renders right — likely a new LPD setup/tool.
      Depends on U5 + U6. ✅ first cut DONE v0.0.9 (shared stitch).
-8. **Seam/stack orientation looks inverted (user 2026-06-09, FUTURE):** on the SampleCardHolder the
-   assembled stack doesn't match the intended nesting — pieces appear joined on the **wrong side**, as
-   if the seam edge was created on the **outside instead of the inside**. User's hunch: a **pen-tool
-   edge-creation** issue (the T-pocket is a pen path; its seam edge may be wound/numbered so the
-   stack folds the wrong way). Reference renders in the LPD repo root: `Weird3DRender.png` (wrong —
-   pieces splayed, seam connectors crossing) vs `IntendedStack.png` (the 2D nesting it should become).
-   Likely root cause in **edge winding / align2D direction / seam member orientation** (LPD authoring
-   or 3D `align2D`). Investigate the pen-path edge indexing + `reversed`/anchor inference. NOT yet
-   diagnosed.
+8. ✅ **Seam/stack wrong-side splay — FIXED v0.0.11.** SampleCardHolder splayed (T-pocket flung to the
+   wrong side, `Weird3DRender.png`) instead of nesting (`IntendedStack.png`). Root cause: `align2D`
+   matched mated-edge **directions**, so an **antiparallel** winding (pen-path edge vs rect edge) forced
+   a spurious **180° rotation** that flipped the body to the wrong side. Fix = `placeMemberOnParent`
+   computes both rigid edge-matches and picks the one whose **piece centroid nests on the same side** as
+   the parent (geometry-only, in the 3D consumer; no editor change). `splay-guard` smoke locks it.
+9. **No-Y-flip frame refactor (user 2026-06-09, NEXT):** the shape→world map bakes a reflection
+   (`world Z = −shape Y`, `geo.rotateX(-π/2)`, det −1) which mirrors the stitch slant and makes the flat
+   3D read mirrored vs the editor template. User wants the 3D to be a **straight extrusion of the flat
+   2D render** (no Y flip) — simpler frame, and templates nest as-drawn. Replace the reflection with
+   `world Z = +shape Y` consistently across all map sites (panel extrude, `addHoleMesh -holes.y`,
+   `addThreadMesh azw=-sy`, `poseMatrix -xf.ty`, `pieceTree axis z:-a0.y`, seam overlays `-p.y`) and
+   re-aim `HOME_CAM` so the default view matches the editor. This also fixes the **stitch-slant sign**
+   (v0.0.10 carry-forward — verify, don't guess, on the non-reflected frame). Then capture as a reusable
+   **2D→3D rendering** skill (frame convention + nesting/winding invariant + pen-path `cp*` gotcha).
 
 ---
 

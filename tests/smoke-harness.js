@@ -122,6 +122,12 @@ window.__SMOKE__ = function (spec) {
       assert('load -> 3 panel meshes (rect+circle+PEN path)', S.panelMeshes.length === 3, `panels=${S.panelMeshes.length}`);
       assert('load -> stitch meshes present (holes+thread)', S.stitchMeshes.length >= 1, `stitch=${S.stitchMeshes.length}`);
       assert('load remembers doc for rebuild', S.lastData && S.lastName === 'smoke');
+      // piece distinction: one silhouette outline per panel, and adjacent pieces get distinct tints
+      assert('distinction: one outline per panel', S.outlineMeshes.length === 3, `outlines=${S.outlineMeshes.length}`);
+      assert('distinction: pieces get distinct tints', !S.panelMeshes[0].material.color.equals(S.panelMeshes[1].material.color));
+      const tHex = S.panelMeshes[1].material.color.getHex();
+      applyMaterials();   // a base-colour/roughness re-apply must KEEP the per-piece tint
+      assert('distinction: tint survives applyMaterials', S.panelMeshes[1].material.color.getHex() === tHex);
 
       // hidden shapes are skipped
       loadPattern({ shapes: [
@@ -298,6 +304,25 @@ window.__SMOKE__ = function (spec) {
       assertNear('partial member clipped to ~45mm', s.resolved[0].len, 45, 0.5);
       assert('partial join: NO length-mismatch problem', !S.problems.some(p => p.kind === 'length'));
 
+      // mm partial join (schema v4): a 100mm edge + 50mm mating edge -> run auto = 50mm; the long
+      // member's offset (mm from its reference end) slides that run. No t0/t1 in the file.
+      loadPattern({
+        shapes: [
+          { id: 1, type: 'rect', x: 0,   y: 0, w: 100, h: 80, name: 'long' },
+          { id: 2, type: 'rect', x: 200, y: 0, w: 50,  h: 80, name: 'mate' },
+        ],
+        assembly: { version: 4, seams: [
+          { id: 1, name: 'mm-spine', type: 'stitch', fit: 'partial', anchor: 'start',
+            members: [{ shape: 1, edge: 0, offset: 25 }, { shape: 2, edge: 0 }] },
+        ] },
+      }, 'mm');
+      const mm = S.assembly.seams.find(x => x.id === 1);
+      const long = mm.resolved.find(r => r.shape === 1);
+      assertNear('mm: run auto-derives to the 50mm mating edge', long.len, 50, 0.5);
+      assertNear('mm: offset 25 slides the run start to x=25', long.poly[0].x, 25, 0.5);
+      assertNear('mm: run ends at x=75', long.poly[long.poly.length - 1].x, 75, 0.5);
+      assert('mm: no length-mismatch problem', !S.problems.some(p => p.kind === 'length'));
+
       // control: the SAME unequal edges as a FULL join DO raise the mismatch
       loadPattern({
         shapes: [
@@ -391,6 +416,30 @@ window.__SMOKE__ = function (spec) {
       // toggle back to flat → identity restored
       setAssemblyMode('flat');
       assert('flat again: identity restored', isIdent(S.pieceGroups.get(2).group.matrix));
+
+      // REGRESSION (wrong-side / splay): a pen path whose mated edge is wound ANTIPARALLEL to the
+      // parent's, with its body NOT mirror-symmetric to the parent (so a 180-deg flip splays it out
+      // instead of nesting). Parent rect right edge (x=100, +Y) <-> child path right edge (x=100, -Y).
+      // Both bodies sit to the LEFT of x=100, so the child must NEST over the parent (theta~0), not flip.
+      loadPattern({
+        shapes: [
+          { id: 1, type: 'rect', x: 0, y: 0, w: 100, h: 80, thickness: 2 },
+          { id: 2, type: 'path', closed: true, thickness: 2, points: [
+            { x: 0, y: 200 }, { x: 0, y: 280 }, { x: 100, y: 280 }, { x: 100, y: 200 } ]
+            .map(p => ({ ...p, cp1x: p.x, cp1y: p.y, cp2x: p.x, cp2y: p.y, corner: true })) },
+        ],
+        assembly: { version: 1,
+          seams: [{ id: 1, name: 'nest', type: 'stitch', members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 2 }] }],
+          folds: [] },
+      }, 'splay');
+      setAssemblyMode('stacked');
+      const sx = S.pieceXf.get(2);
+      assert('splay-guard: antiparallel pen edge nests without a 180-deg flip',
+        Math.abs(sx.theta) < 1e-6, `theta=${sx.theta.toFixed(4)}`);
+      // child centroid (50,240) must land on the parent's side of the seam line (nested), not flipped out
+      const cc = applyXf2D(sx, { x: 50, y: 240 });
+      assert('splay-guard: child body nests over the parent (not splayed out)',
+        cc.x > 0 && cc.x < 100 && cc.y > -1 && cc.y < 81, `c=(${cc.x.toFixed(1)},${cc.y.toFixed(1)})`);
 
       clearScene();
       assert('clearScene clears piece groups', S.pieceGroups.size === 0);
