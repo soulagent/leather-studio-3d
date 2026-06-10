@@ -143,8 +143,8 @@ window.__SMOKE__ = function (spec) {
     // --- #U3 camera framing + orbit pivot ---
     camera() {
       loadPattern({ shapes: [
-        { type: 'rect', id: 1, x: 0,   y: 0, w: 60, h: 40, name: 'Front', hasStitch: false },
-        { type: 'rect', id: 2, x: 300, y: 0, w: 60, h: 40, name: 'Back',  hasStitch: false },
+        { type: 'rect', id: 1, x: 0,   y: 0, w: 60, h: 40, label: 'Front', hasStitch: false },
+        { type: 'rect', id: 2, x: 300, y: 0, w: 60, h: 40, label: 'Back',  hasStitch: false },
       ] }, 'cam');
 
       const sel = document.getElementById('pivotSel');
@@ -209,6 +209,14 @@ window.__SMOKE__ = function (spec) {
       assert('U5: stitch is slanted off the seam, not axis-aligned', Math.abs(d0.z) > 0.05 && Math.abs(d0.z) < 0.95, `z=${d0.z}`);
       // Both faces share the slant (NOT mirrored) — fixes the crossing-stitch look (user 2026-06-09).
       assert('U5: top + bottom face share the same slant (not mirrored)', d0.dot(d1) > 0.999, `dot=${d0.dot(d1)}`);
+      // Thread CROSSES the slit (user 2026-06-10): slit lies at a-30deg, thread at a+30deg, so
+      // they meet at ~60deg (|dot| ~ cos60 = 0.5) — never parallel (was th=-iron, |dot|=1).
+      addHoleMesh([{ x: 0, y: 0, a: 0, yTop: 2 }], g);
+      const hm2 = S.stitchMeshes[S.stitchMeshes.length - 1];
+      const hx = new THREE.Matrix4(); hm2.getMatrixAt(0, hx);
+      const slitDir = new THREE.Vector3(hx.elements[0], hx.elements[1], hx.elements[2]).normalize();
+      assert('thread crosses the slit (not parallel)', Math.abs(d0.dot(slitDir)) < 0.7,
+        `dot=${d0.dot(slitDir).toFixed(3)}`);
 
       clearScene();
     },
@@ -367,12 +375,32 @@ window.__SMOKE__ = function (spec) {
       const h2 = [], t2 = []; collectStitches({ id: 2, hidden: false, hasStitch: false }, h2, t2);
       assert('U7-3D: both members get aligned holes', h1.length > 0 && h2.length > 0, `${h1.length} / ${h2.length}`);
       assert('U7-3D: members share hole count (coincide)', h1.length === h2.length, `${h1.length} vs ${h2.length}`);
-      assert('U7-3D: count = round(len/spacing)+1', h1.length === Math.round(80 / 5) + 1, `n=${h1.length}`);
+      const u7mg = (LP.defMargin || 3);
+      assert('U7-3D: count = round(insetLen/spacing)+1', h1.length === Math.round((80 - 2 * u7mg) / 5) + 1, `n=${h1.length}`);
       assert('U7-3D: threads link consecutive holes per run', t1.length === h1.length - 1, `t=${t1.length}`);
       assert('U7-3D: holes carry an orientation angle', h1.every(p => typeof p.a === 'number'));
       // Margin inset: member edge 1 of rect id1 is the right edge at x=100; holes must sit the
       // 3mm stitch margin IN from it (~x=97), not on the edge line (user 2026-06-09).
       assert('U7-3D: shared holes inset from the edge by the margin', h1.every(p => p.x < 99) && h1.some(p => p.x > 95), `xs=${h1.map(p => p.x.toFixed(1)).join(',')}`);
+      // End-hole fix (user 2026-06-10): the run's end holes are ALSO inset by the margin along
+      // the edge (mirrors the editor) — corner = ONE inset hole, not a doubled pair. Edge 1 runs
+      // y 0→80, so holes live in [mg, 80-mg] and touch both inset ends.
+      const ys = h1.map(p => p.y);
+      assert('U7-3D: end holes inset along the run',
+        ys.every(y => y > u7mg - 0.01 && y < 80 - u7mg + 0.01) &&
+        ys.some(y => y < u7mg + 0.01) && ys.some(y => y > 80 - u7mg - 0.01),
+        `ys=${ys.map(y => y.toFixed(1)).join(',')}`);
+      // Corner dedupe: independently stitch the other edges of piece 1 — the corner twins the
+      // seam already owns must be dropped (one hole per corner, like the editor).
+      const hd = [], td = []; collectStitches({ id: 1, type: 'rect', x: 0, y: 0, w: 100, h: 80, hidden: false, hasStitch: true }, hd, td);
+      const sp1 = (LP.defSpacing || 3.38);
+      const sideN = e => Math.max(1, Math.round((e - 2 * u7mg) / sp1));   // holes per independent edge
+      // Independent holes placed: edge 0 = N(100) + a far push toward the seam edge, edge 2 =
+      // N(100) (its next edge 3 is stitched, no push), edge 3 = N(80). The two corners on the
+      // seam edge (edge 0's push at c1, edge 2's start at c2) coincide with the seam's inset end
+      // holes and are deduped: N(100)*2 + N(80) + 1 push - 2 deduped.
+      const expected = h1.length + sideN(100) * 2 + sideN(80) - 1;
+      assert('U7-3D: one hole per corner (dedup vs side edges)', hd.length === expected, `holes=${hd.length} expected=${expected}`);
       clearScene();
     },
 
@@ -441,6 +469,35 @@ window.__SMOKE__ = function (spec) {
       assert('splay-guard: child body nests over the parent (not splayed out)',
         cc.x > 0 && cc.x < 100 && cc.y > -1 && cc.y < 81, `c=(${cc.x.toFixed(1)},${cc.y.toFixed(1)})`);
 
+      // --- layer-order stack + soft non-adjacent seams (user 2026-06-10) ---
+      // back (layer 0) / pocket (layer 1) / front (layer 2). Hard seams: back↔pocket (A),
+      // pocket↔front (C) — adjacent layers. Seam B joins back↔front DIRECTLY (pocket between
+      // them in the layer sequence) → SOFT: alignment hint only, never a hard rule.
+      loadPattern({
+        shapes: [
+          { id: 1, type: 'rect', x: 0, y: 0,   w: 100, h: 80, thickness: 2,   name: 'back'   },
+          { id: 2, type: 'rect', x: 0, y: 200, w: 100, h: 40, thickness: 1.5, name: 'pocket' },
+          { id: 3, type: 'rect', x: 0, y: 300, w: 100, h: 80, thickness: 2,   name: 'front'  },
+        ],
+        assembly: { version: 4, seams: [
+          { id: 1, name: 'A back-pocket',  type: 'stitch', members: [{ shape: 1, edge: 2 }, { shape: 2, edge: 0 }] },
+          { id: 2, name: 'B back-front',   type: 'stitch', members: [{ shape: 1, edge: 0 }, { shape: 3, edge: 0 }] },
+          { id: 3, name: 'C pocket-front', type: 'stitch', members: [{ shape: 2, edge: 2 }, { shape: 3, edge: 2 }] },
+        ], folds: [] },
+      }, 'layerstack');
+      assert('soft: non-adjacent-layer seam classified soft', S.softSeams.has(2), [...S.softSeams].join(','));
+      assert('soft: adjacent-layer seams stay hard', !S.softSeams.has(1) && !S.softSeams.has(3), [...S.softSeams].join(','));
+      // Z-stack follows the GLOBAL layer order: pocket on back (2mm), front on back+pocket (3.5mm)
+      assertNear('layerstack: back at the base', S.pieceXf.get(1).dy, 0, 1e-6);
+      assertNear('layerstack: pocket lifted by back', S.pieceXf.get(2).dy, 2, 1e-6);
+      assertNear('layerstack: front lifted by back+pocket', S.pieceXf.get(3).dy, 3.5, 1e-6);
+      // Front was positioned by the hard chain (A then C), so the soft seam B's edges do NOT
+      // meet — and being soft, that must NOT raise a Tier-2 gap problem.
+      assert('soft: hard chain placed front via the pocket', S.pieceTree.get(3) && S.pieceTree.get(3).parent === 2,
+        JSON.stringify(S.pieceTree.get(3)));
+      assert('soft: no gap problem from the alignment-only seam', !S.problems.some(p => p.kind === 'gap'),
+        JSON.stringify(S.problems));
+
       clearScene();
       assert('clearScene clears piece groups', S.pieceGroups.size === 0);
     },
@@ -492,8 +549,9 @@ window.__SMOKE__ = function (spec) {
           { id: 1, name: 's1', members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 3 }] },
           { id: 2, name: 's2', members: [{ shape: 2, edge: 1 }, { shape: 3, edge: 3 }] },
         ], folds: [] } }, 'chain');
-      assert('chain: root is the most-connected piece (B identity)',
-        S.pieceXf.get(2).dy === 0 && S.pieceXf.get(2).theta === 0 && S.pieceXf.get(2).tx === 0);
+      assert('chain: root (most-connected B) keeps in-plane identity',
+        S.pieceXf.get(2).theta === 0 && S.pieceXf.get(2).tx === 0 && S.pieceXf.get(2).ty === 0);
+      assertNear('chain: stack follows layer order (B above A)', S.pieceXf.get(2).dy, 2, 1e-6);
       assert('chain: both leaves positioned', moved(1) && moved(3));
       assert('chain: tree closes with no gap', gapCount() === 0, `gaps=${gapCount()}`);
 
@@ -507,15 +565,27 @@ window.__SMOKE__ = function (spec) {
       assertNear('N-way: 3rd piece lifted by piece1+piece2', S.pieceXf.get(3).dy, 5, 1e-6);
       assert('N-way: spine coincides (no gap)', gapCount() === 0, `gaps=${gapCount()}`);
 
-      // cycle A-B-C-A: spanning tree places A,B,C; the closing seam can't coincide → gap flagged
+      // cycle A-B-C-A: the closing seam joins NON-adjacent layers (A and C, with B between) →
+      // it is a SOFT alignment, not a hard rule (user 2026-06-10) — no gap problem; the
+      // spanning tree still places all three pieces.
       loadPattern({ shapes: [rect(1,0,2), rect(2,400,2), rect(3,800,2)],
         assembly: { version: 1, seams: [
           { id: 1, name: 's1', members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 3 }] },
           { id: 2, name: 's2', members: [{ shape: 2, edge: 1 }, { shape: 3, edge: 3 }] },
           { id: 3, name: 's3', members: [{ shape: 3, edge: 1 }, { shape: 1, edge: 3 }] },
         ], folds: [] } }, 'cycle');
-      assert('cycle: residual-gap problem flagged', gapCount() >= 1, `gaps=${gapCount()}`);
+      assert('cycle: closing non-adjacent seam is soft → no gap problem',
+        S.softSeams.has(3) && gapCount() === 0, `soft=${[...S.softSeams]} gaps=${gapCount()}`);
       assert('cycle: all three pieces still placed', !moved(1) && moved(2) && moved(3));
+
+      // 2-piece over-constrained cycle: adjacent layers, so BOTH seams stay hard — once the
+      // first places B, the second can't coincide → the residual gap IS still flagged (Tier-2).
+      loadPattern({ shapes: [rect(1,0,2), rect(2,400,2)],
+        assembly: { version: 1, seams: [
+          { id: 1, name: 'h1', members: [{ shape: 1, edge: 1 }, { shape: 2, edge: 3 }] },
+          { id: 2, name: 'h2', members: [{ shape: 1, edge: 0 }, { shape: 2, edge: 0 }] },
+        ], folds: [] } }, 'cycle2');
+      assert('cycle: hard 2-piece cycle still gap-flagged', gapCount() >= 1, `gaps=${gapCount()}`);
 
       clearScene();
     },

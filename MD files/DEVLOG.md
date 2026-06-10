@@ -5,6 +5,73 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.13 — layer-order stack + soft seams + thread crosses the slit + end-hole parity (2026-06-10)
+
+### A. Shared-seam end holes — parity with LPD v0.8.9 (one hole per corner)
+Mirror of the editor's fix for the doubled extreme-end holes. `seamStitchSegments3D` now trims each
+member's inset polyline by the stitch **margin at both ends** (`clipPolyByT`), with the hole count
+derived from the trimmed reference run — so the seam's end holes sit on the inset corner like
+independent stitching, and the same mm trim on every member keeps the holes coincident through the
+stack. `collectStitches` drops any independent hole within 0.75mm of a seam hole (the perpendicular
+edge's corner twin). `buildAssembly` also carries **`stitch.margin`** through to the resolved seam —
+it was silently dropped, so a custom seam margin fell back to the default in 3D.
+
+### B. Stack follows the LAYER order; non-adjacent seams are soft (user 2026-06-10)
+*"Render stack should follow the layer and render above each other, edge seams for layers that are
+not adjacent will just be an alignment not a hard rule."*
+- **Global layer stack.** `computePieceTransforms` no longer steps dy per-seam from the parent;
+  after placing a component it lifts every piece by the **summed thickness of all lower-layer
+  pieces in that component** — the render stack now always matches the editor's layer panel,
+  even when the seam graph reaches a piece "out of order".
+- **Soft seams.** Two pieces are *stack-adjacent* when no other seam-touched piece sits between
+  them in the layer sequence. A seam with **no stack-adjacent member pair** is SOFT (`S.softSeams`):
+  a two-phase BFS places pieces via hard seams first (a soft seam only places a piece nothing else
+  reaches), and soft seams are **never gap-flagged** — they're alignment hints, not joins. A
+  3-cycle's closing seam (back↔front with the pocket between) is exactly this case; a 2-piece
+  over-constrained cycle stays hard and still raises the Tier-2 gap problem.
+
+### C. Thread crosses the slit (user 2026-06-10, visually verified)
+*"The stitching should not be parallel to the stitch hole."* `addThreadMesh` laid the surface
+thread at `th = −iron` — deliberately parallel to the french slit (slit = edgeAngle − 30°), so the
+thread hid inside the slit line. Flipped to **`th = +iron`**: thread and slit now cross at ~2·iron
+(60° french), the classic opposing saddle-stitch slant; both faces still share the slant (the
+v0.0.10 un-mirror kept). Verified with before/after + close-up screenshots via `tests/_shot.ps1`
+(new `closecorner` camera), sent to the user.
+
+Smoke: +10 (layerstack/soft/cycle2/thread-cross; chain + cycle fixtures updated to the new
+semantics — root keeps in-plane identity at its layer height, 3-cycle closing seam soft). Full
+**148/148**, build smoke 36/36.
+
+---
+
+## v0.0.12 — update prompt on welcome screen + pivot dropdown shows real piece names (2026-06-10)
+
+### A. Update prompt now shows on the welcome screen
+Bug (user-reported): on launch the auto-updater's "Version X is available" prompt did **not** appear on
+the Home/welcome screen — it only surfaced after a file was loaded. Cause was pure z-ordering: the
+silent launch check (`checkForUpdates(false)`, fired ~1.5s after `showHome()`) opened the themed
+`#modal-bg` at `z-index:100`, but the `#home` overlay sits at `z-index:5000`, so the prompt rendered
+*behind* the welcome screen and only became visible once `hideHome()` ran (which a file load triggers).
+Fix: raise `#modal-bg` to `z-index:11000`, matching the Pattern Designer's convention (`#confirm-bg`
+is 11000, above its 5000 home) so confirm/alert/update dialogs always sit above the welcome screen.
+One-line CSS change; no logic touched.
+
+### B. Cleanup (audit pass, pre-release addendum)
+Removed the unused `isDesktop()` helper (leftover from LPD scaffolding — `desktopLaunch()`
+checks `window.__TAURI__` directly). Fixed the CONTEXT.md header: it said "assembly-schema v3"
+but the code consumes **v4** (mm partial joins), matching LPD v0.8.8. Quick smoke 11/11 +
+build smoke 36/36.
+
+### C. Camera-pivot dropdown shows the LPD piece name
+Bug (user-reported): the orbit-pivot `<select>` listed pieces as "Piece 1/2/…" instead of the names
+given in the editor. Cause: `pieceLabel()` read `shape.name`, but LPD stores the user-given layer name
+in `shape.**label**` (see the editor's `layerName()`), so it always fell through to the generic label.
+Fix: `pieceLabel()` now mirrors `layerName()` — `label` → text box's first line → type word
+(Rectangle/Circle/Path) → "Piece N". The `camera` smoke fixture was itself wrong (it set `name:` on the
+shapes, encoding the same bug); corrected to `label:` so the assert is now meaningful. Full **136/136**.
+
+---
+
 ## v0.0.11 — splay fix + mm partial seams + piece distinction (2026-06-09)
 
 Three things this session (paired with LPD v0.8.8): the wrong-side stack fix, consuming the editor's

@@ -148,7 +148,7 @@
 
   /* ── Themed modal (confirmModal / alertModal) — never native confirm/alert ── */
   #modal-bg{
-    position:fixed; inset:0; z-index:100; display:none;
+    position:fixed; inset:0; z-index:11000; display:none;
     align-items:center; justify-content:center; background:rgba(0,0,0,.5);
   }
   #modal-bg.show{display:flex}
@@ -366,7 +366,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.11';
+  const APP_VERSION = 'v0.0.13';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -392,6 +392,7 @@
     pieceGroups:new Map(),     // shape id -> {group, shape, thickness} (each piece is its own group)
     pieceXf:new Map(),         // shape id -> {theta,tx,ty,dy} in-plane stacked pose (S1/S2)
     pieceTree:new Map(),       // child id -> {parent, axisA, axisB, hingeY} hinge over the seam tree (S3)
+    softSeams:new Set(),       // seam ids between non-adjacent layers — alignment hints, not hard joins
     threadMeshes:[],           // per-piece thread meshes (for live colour change)
     assembleT:1,               // 0..1 Flat↔Assembled fold amount (the assemble slider)
     foldAngle:90,              // target dihedral (deg) applied to every seam hinge when assembled
@@ -646,10 +647,16 @@
       if(res.length<2) continue;
       const sp = seam.stitch.spacing>0 ? seam.stitch.spacing : (LP.defSpacing||3.38);
       const mg = seam.stitch.margin>0 ? seam.stitch.margin : (LP.defMargin||3);
-      const N = Math.max(1, Math.round(polyLength(insetEdgePoly(res[0].poly, res[0].sh, mg))/sp));
+      // End holes are inset by the margin ALONG the run too (mirrors the editor's
+      // seamStitchLayout): a seam ending at a piece corner puts its end hole on the inset
+      // corner, not the raw edge end. The same mm trim on every member keeps the holes
+      // coincident across the stack.
+      const trim = poly => { const L=polyLength(poly); return L>2*mg+0.5 ? clipPolyByT(poly, mg/L, 1-mg/L) : poly; };
+      const ref = trim(insetEdgePoly(res[0].poly, res[0].sh, mg));
+      const N = Math.max(1, Math.round(polyLength(ref)/sp));
       for(const m of res){
         if(m.shape!==sh.id) continue;
-        const pts=resampleByArcLength(insetEdgePoly(m.poly, m.sh, mg), N), run=[];
+        const pts=resampleByArcLength(trim(insetEdgePoly(m.poly, m.sh, mg)), N), run=[];
         for(let i=0;i<pts.length;i++){
           const a=pts[Math.max(0,i-1)], b=pts[Math.min(pts.length-1,i+1)];
           const hole={x:pts[i].x, y:pts[i].y, a:Math.atan2(b.y-a.y,b.x-a.x), yTop, forced:(i===0||i===pts.length-1)};
@@ -977,11 +984,18 @@
   function collectStitches(sh, holes, threads){
     if (sh.hidden) return;
     const th = pieceThickness(sh);                     // per-piece top-face height
+    // U7: aligned holes + threads from any shared-stitch seam this shape belongs to.
+    const seamSt = seamStitchSegments3D(sh, th);
     // Independent per-edge holes (edges owned by a shared-stitch seam are skipped via edgeStitched).
     if (sh.hasStitch){
       const res = stitchFor(sh);
       if (res && res.pts.length){
-        const P = res.pts;
+        // Corner ownership (mirrors the editor's stitchFor): the seam's inset end hole lands
+        // exactly where an adjacent independently-stitched edge puts its corner hole — drop the
+        // independent twin so each corner keeps ONE hole.
+        const P = seamSt.holes.length
+          ? res.pts.filter(p => !seamSt.holes.some(q => Math.hypot(q.x-p.x, q.y-p.y) < 0.75))
+          : res.pts;
         for (const p of P){ p.yTop = th; holes.push(p); }
         const sp = sh.stitchSpacing ?? LP.defSpacing, tol = sp*1.8;
         const join = (a,b)=>{ if (Math.hypot(b.x-a.x,b.y-a.y) <= tol) threads.push({a,b,yTop:th}); };
@@ -990,8 +1004,6 @@
         if (wraps && P.length>2) join(P[P.length-1], P[0]);
       }
     }
-    // U7: aligned holes + threads from any shared-stitch seam this shape belongs to.
-    const seamSt = seamStitchSegments3D(sh, th);
     for (const p of seamSt.holes) holes.push(p);
     for (const t of seamSt.threads) threads.push(t);
   }
@@ -1050,9 +1062,11 @@
       // every hole), like a real saddle stitch — not a continuous band tiling along the edge.
       const segLen=Math.max(len*0.62, len-2*STITCH_INSET);
       for (const face of [1,-1]){           // +1 = top face, -1 = bottom face
-        const th=-iron;                     // SAME slant on both faces (edgeAngle - iron, matching the
-                                            // editor's french slit) — NOT mirrored, so the two faces
-                                            // don't read as crossing stitches near the edge.
+        const th=+iron;                     // OPPOSITE slant to the slit (slit = edgeAngle - iron):
+                                            // the thread must CROSS the slit, not lie parallel in it
+                                            // (user 2026-06-10) — real saddle stitch pulls diagonally
+                                            // against the pricking angle. SAME slant on both faces
+                                            // (not mirrored), so the run reads as clean parallel dashes.
         const dxs=ux*Math.cos(th)-uy*Math.sin(th), dys=ux*Math.sin(th)+uy*Math.cos(th); // seam dir rotated by th
         const sx=mx-dxs*segLen/2, sy=my-dys*segLen/2;
         const ex=mx+dxs*segLen/2, ey=my+dys*segLen/2;
@@ -1123,7 +1137,8 @@
                      anchor: seam.anchor==='end'?'end':'start', members, resolved,
                      // U7: a shared stitch layout so members' holes coincide across the stack.
                      stitch: (seam.type!=='fold' && seam.stitch && seam.stitch.shared)
-                       ? { shared:true, spacing: (typeof seam.stitch.spacing==='number' && seam.stitch.spacing>0 ? seam.stitch.spacing : null) } : null };
+                       ? { shared:true, spacing: (typeof seam.stitch.spacing==='number' && seam.stitch.spacing>0 ? seam.stitch.spacing : null),
+                           margin: (typeof seam.stitch.margin==='number' && seam.stitch.margin>0 ? seam.stitch.margin : null) } : null };
       // Tier-1 problems (flat / geometric — no folding needed):
       if (dangling.length)
         problems.push({ seam:sObj.id, kind:'dangling', msg:`"${sObj.name}": ${dangling.length} edge${dangling.length>1?'s':''} no longer resolve (deleted piece/edge)` });
@@ -1213,7 +1228,7 @@
   // their residual gap is measured + flagged (Tier-2), per the "preview the problem" goal.
   const GAP_TOL = 1.0; // mm — residual seam gap that counts as "doesn't meet in the assembly"
   function computePieceTransforms(){
-    S.pieceXf = new Map(); S.pieceTree = new Map();
+    S.pieceXf = new Map(); S.pieceTree = new Map(); S.softSeams = new Set();
     for (const id of S.pieceGroups.keys()) S.pieceXf.set(id, { ...IDENT_XF });
     if (!S.assembly) return;
     const shapes = Array.isArray(S.lastData?.shapes) ? S.lastData.shapes : [];
@@ -1226,6 +1241,18 @@
       if (!pieceSeams.has(m.shape)) pieceSeams.set(m.shape, []);
       if (!pieceSeams.get(m.shape).includes(seam)) pieceSeams.get(m.shape).push(seam);
     }
+    // Stack adjacency by LAYER order (user 2026-06-10): two pieces are stack-adjacent when no
+    // other seam-touched piece sits between them in the layer sequence. A seam with no stack-
+    // adjacent member pair is SOFT — an alignment hint, not a hard join: hard seams place
+    // pieces first, a soft seam only places a piece nothing else reaches, and soft seams are
+    // never gap-flagged (their edges aren't required to meet).
+    const layerSeq = [...pieceSeams.keys()].sort((a,b)=>(rank.get(a)??0)-(rank.get(b)??0));
+    const seqPos = new Map(layerSeq.map((id,i)=>[id,i]));
+    const stackAdjacent = (a,b)=> Math.abs((seqPos.get(a)??0)-(seqPos.get(b)??0))===1;
+    for (const seam of seams){
+      const ids=[...new Set(seam.resolved.map(m=>m.shape))];
+      if (!ids.some((a,i)=>ids.some((b,j)=>j>i && stackAdjacent(a,b)))) S.softSeams.add(seam.id);
+    }
     const degree = id => (pieceSeams.get(id)?.length || 0);
     const remaining = new Set([...pieceSeams.keys()]);   // seam-touched pieces; others stay at raw layout
     const visited = new Set();
@@ -1235,30 +1262,40 @@
       for (const id of remaining){ const d=degree(id), r=rank.get(id)??1e9;
         if (d>best || (d===best && r<(rank.get(root)??1e9))){ best=d; root=id; } }
       S.pieceXf.set(root, { ...IDENT_XF }); visited.add(root); remaining.delete(root);
-      const queue=[root];
-      while (queue.length){
-        const p=queue.shift(), pXf=S.pieceXf.get(p);
+      const comp=[root], queue=[root], deferred=[];
+      const placeFrom = (p, seam)=>{
+        const pm = seam.resolved.find(m=>m.shape===p); if(!pm) return;
+        const pXf = S.pieceXf.get(p);
+        for (const m of seam.resolved){
+          if (m.shape===p || visited.has(m.shape)) continue;   // self / already placed (cycle) → skip
+          const xf = placeMemberOnParent(pm, m, pXf, seam.fit==='partial' ? seam.anchor : null);
+          S.pieceXf.set(m.shape, xf); visited.add(m.shape); remaining.delete(m.shape); comp.push(m.shape);
+          // Hinge for assembled mode: child folds about its PARENT's shared edge (the seam line),
+          // expressed in the parent's local geometry frame, at the parent's top face.
+          const a0=pm.poly[0], a1=pm.poly[pm.poly.length-1];
+          S.pieceTree.set(m.shape, { parent:p, axisA:{x:a0.x, z:-a0.y}, axisB:{x:a1.x, z:-a1.y}, hingeY:thick(p) });
+          queue.push(m.shape);
+        }
+      };
+      // Two-phase BFS: hard seams first; soft (alignment-only) seams are deferred and only
+      // place pieces still unreached once the hard frontier is exhausted.
+      while (queue.length || deferred.length){
+        if (!queue.length){
+          const d = deferred.shift();
+          if (d && d.seam.resolved.some(m=>!visited.has(m.shape))) placeFrom(d.p, d.seam);
+          continue;
+        }
+        const p=queue.shift();
         for (const seam of pieceSeams.get(p)||[]){
-          const pm = seam.resolved.find(m=>m.shape===p); if(!pm) continue;
-          // Stack the seam's members by layer order; p anchors, others step by thickness.
-          const ordered = [...seam.resolved].sort((a,b)=>(rank.get(a.shape)??0)-(rank.get(b.shape)??0));
-          const pi = ordered.findIndex(m=>m.shape===p);
-          for (let j=0;j<ordered.length;j++){
-            const m=ordered[j];
-            if (m.shape===p || visited.has(m.shape)) continue;   // self / already placed (cycle) → skip
-            let dy=pXf.dy;
-            if (j>pi) for(let t=pi;t<j;t++) dy+=thick(ordered[t].shape);
-            else      for(let t=j;t<pi;t++) dy-=thick(ordered[t].shape);
-            const xf = placeMemberOnParent(pm, m, pXf, seam.fit==='partial' ? seam.anchor : null); xf.dy = dy;
-            S.pieceXf.set(m.shape, xf); visited.add(m.shape); remaining.delete(m.shape);
-            // Hinge for assembled mode: child folds about its PARENT's shared edge (the seam line),
-            // expressed in the parent's local geometry frame, at the parent's top face.
-            const a0=pm.poly[0], a1=pm.poly[pm.poly.length-1];
-            S.pieceTree.set(m.shape, { parent:p, axisA:{x:a0.x, z:-a0.y}, axisB:{x:a1.x, z:-a1.y}, hingeY:thick(p) });
-            queue.push(m.shape);
-          }
+          if (S.softSeams.has(seam.id)) deferred.push({p, seam});
+          else placeFrom(p, seam);
         }
       }
+      // Stack the whole component by GLOBAL layer order (user 2026-06-10): each piece rests on
+      // the summed thickness of every lower-layer piece in its component, regardless of which
+      // seam placed it — so the render stack follows the editor's layer panel.
+      comp.sort((a,b)=>(rank.get(a)??0)-(rank.get(b)??0));
+      let lift=0; for (const id of comp){ S.pieceXf.get(id).dy = lift; lift += thick(id); }
     }
     computeSeamGaps(seams);
   }
@@ -1271,6 +1308,8 @@
     const lengthBad = new Set(S.problems.filter(p=>p.kind==='length').map(p=>p.seam));
     for (const seam of seams){
       if (lengthBad.has(seam.id) || seam.fit==='partial') continue;
+      // Soft seams (non-adjacent layers) are alignment hints — never required to meet.
+      if (S.softSeams && S.softSeams.has(seam.id)) continue;
       const ref = seam.resolved[0], refXf = S.pieceXf.get(ref.shape) || IDENT_XF;
       const refPts = resampleByArcLength(ref.poly, SEAM_RIBBON_K).map(p=>applyXf2D(refXf,p));
       let maxGap=0;
@@ -1473,7 +1512,14 @@
 
   // (Re)fill the pivot dropdown from the loaded pieces; keep the current choice if
   // it still exists, else fall back to the whole model.
-  function pieceLabel(key, i){ const w=S.pieceGroups.get(key); const nm=w && w.shape && w.shape.name; return nm || ('Piece '+(i+1)); }
+  // Mirror the editor's layerName(): the user-given piece name lives in shape.label (NOT .name);
+  // fall back to a text box's first line, then a type word, then a generic "Piece N".
+  function pieceLabel(key, i){
+    const w=S.pieceGroups.get(key), sh=w && w.shape; if(!sh) return 'Piece '+(i+1);
+    const nm=(sh.label||'').trim(); if(nm) return nm;
+    if(sh.type==='text'){ const t=(sh.text||'').split('\n').map(x=>x.trim()).find(Boolean); if(t) return t.slice(0,40); }
+    return sh.type==='rect'?'Rectangle':sh.type==='circle'?'Circle':sh.type==='path'?'Path':('Piece '+(i+1));
+  }
   function populatePivotSelect(){
     const sel=document.getElementById('pivotSel'); if(!sel) return;
     if (S.pivot!=='model' && !S.pieceGroups.has(S.pivot)) S.pivot='model';
@@ -1491,7 +1537,7 @@
     for (const w of S.pieceGroups.values()) patternGroup.remove(w.group);
     S.panelMeshes = []; S.outlineMeshes = []; S.stitchMeshes = []; S.threadMeshes = [];
     S.seamMeshes = []; S.assembly = null; S.problems = [];
-    S.pieceGroups = new Map(); S.pieceXf = new Map(); S.pieceTree = new Map();
+    S.pieceGroups = new Map(); S.pieceXf = new Map(); S.pieceTree = new Map(); S.softSeams = new Set();
     _centroidCache.clear();   // shape ids repeat across files — don't carry stale centroids
     patternGroup.position.set(0,0,0);
     S.docName = null; S.lastData = null; S.lastName = null;
@@ -1576,7 +1622,6 @@
 
   // ── Themed dialogs (never native confirm/alert — ui-language rule) ──
   // confirmModal → Promise<bool>; alertModal = confirm with no Cancel.
-  function isDesktop(){ return !!window.__TAURI__; }
   function confirmModal(message, opts){
     opts = opts || {};
     return new Promise(resolve=>{

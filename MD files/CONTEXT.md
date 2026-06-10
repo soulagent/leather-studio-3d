@@ -1,5 +1,5 @@
 # Leather Studio 3D — Session Context
-_Last updated: 2026-06-09 · Current version: v0.0.11 · Reads .lpd (Pattern Designer save format v15, assembly-schema v3; seams/folds + partial joins + shared stitch consumed)_
+_Last updated: 2026-06-10 · Current version: v0.0.13 · Reads .lpd (Pattern Designer save format v15, assembly-schema v4; seams/folds + partial joins + shared stitch consumed)_
 
 ---
 
@@ -57,9 +57,9 @@ CLAUDE.md
 
 ```powershell
 tests\run-smoke.ps1 -Tier quick        # kernel + outline (fast)
-tests\run-smoke.ps1 -Tier full         # + stitch gen + .lpd->3D load   (26/26)
+tests\run-smoke.ps1 -Tier full         # + stitch gen + .lpd->3D load   (148/148)
 tests\run-smoke.ps1 -Feature "stitch-path,load"
-tests\run-build-smoke.ps1              # desktop-build wiring, static     (19/19)
+tests\run-build-smoke.ps1              # desktop-build wiring, static     (36/36)
 ```
 
 Run the app smoke after any logic change. Exit 0 = all pass. Uses no Claude credits/context.
@@ -140,10 +140,14 @@ reset camera. Menubar dropdowns (File / View) follow the shared menu pattern.
   `S.showSeams`. **S1–S2 add a STACKED layout** (`S.assemblyMode`, `S.pieceGroups`, `S.pieceXf`):
   each piece is its own `THREE.Group`; `align2D` gives the in-plane rigid transform that snaps one
   seam member's mated edge onto another's. `computePieceTransforms` (S2) does **whole-graph BFS** from
-  the most-connected root: every reachable piece snaps onto its parent and stacks by global layer
-  order (cumulative thickness), handling **N-way spines** (3+ on a seam) and multi-seam pieces; the
-  traversal is a spanning tree and cycles are **flagged not forced** — `computeSeamGaps` raises a
-  **Tier-2 'gap'** problem where mated edges don't coincide. **S3 adds folding** (Phase 2b): each piece
+  the most-connected root: every reachable piece snaps onto its parent and the whole component then
+  stacks by **global layer order** (each piece lifted by the summed thickness of every lower-layer
+  piece — the stack always matches the editor's layer panel), handling **N-way spines** (3+ on a
+  seam) and multi-seam pieces; the traversal is a spanning tree and cycles are **flagged not
+  forced** — `computeSeamGaps` raises a **Tier-2 'gap'** problem where mated edges don't coincide.
+  Seams whose member pieces are **not stack-adjacent** (another seam-touched piece sits between them
+  in the layer sequence) are **SOFT** (`S.softSeams`, v0.0.13): alignment hints only — placed last
+  in a two-phase BFS and never gap-flagged. **S3 adds folding** (Phase 2b): each piece
   group is matrix-driven (`poseMatrix`); `computeAssembledMatrices(t)` does forward kinematics down the
   seam tree (`S.pieceTree`) — each child folds about its parent's shared edge by `foldAngle·t`, carrying
   its subtree (`Wc = Wp·Hinge·rel`, t=0 == stacked). A **Flat/Stacked/Assembled** toggle + an
