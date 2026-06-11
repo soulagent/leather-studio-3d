@@ -55,6 +55,12 @@ auto-detected via `git status`, each with its own version line (3D 0.0.x). This 
 BUILD_TAG** (its tag lives only in `desktop/build-info.json`). Full procedure: `build-workflow` +
 `build-workflow-3d` memories.
 
+**The mechanical steps are scripted in `tools/ship.ps1`** (see `tools/README.md`): after writing the
+DEVLOG entry, `tools\ship.ps1 -Version <x.y.z> -Note "..."` mints the tag, syncs every version string,
+runs both smokes (hard gate), builds + signs, then commits/pushes/triggers `release.yml`. The script is
+identical to LPD's and auto-derives the package/repo/signing-key (and skips the BUILD_TAG/title edits
+this app doesn't have). `-DryRun` (+`-SkipBuild`) stops before any push.
+
 ## Roadmap (phased — see CONTEXT.md for the full game plan)
 
 - **Phase 1 (now): 3D viewer MVP.** Load `.lpd`, render each piece as a flat textured panel in
