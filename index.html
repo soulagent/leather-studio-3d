@@ -143,8 +143,10 @@
     padding:0 12px;background:var(--panel);border-top:1px solid var(--border);
     font-size:11px;color:var(--text-2);
   }
+  /* status-bar hierarchy (parity with LPD #7): the live message reads as the stateful item; passive info recedes */
+  #sb-msg{color:var(--text-2);font-weight:600}
   #status .flash{color:var(--success)}
-  #status .sb-r{margin-left:auto;color:var(--text-muted);font-variant-numeric:tabular-nums}
+  #status .sb-r{margin-left:auto;color:var(--text-faint);font-variant-numeric:tabular-nums}
 
   /* ── Themed modal (confirmModal / alertModal) — never native confirm/alert ── */
   #modal-bg{
@@ -366,7 +368,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.13';
+  const APP_VERSION = 'v0.0.14';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 

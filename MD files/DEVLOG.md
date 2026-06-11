@@ -5,6 +5,21 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.14 — app icon "L3D" + status-bar hierarchy (2026-06-11)
+
+### A. App icon now reads "L3D" (was the LPD icon)
+The desktop icon had been reusing the Pattern Designer's "LPD" mark. Recreated the same
+leather-brown / lighter-inner-panel / dashed-french-stitch-border / cream-wordmark style as
+`desktop/icon-source.html`, rasterized to `desktop/icon-source.png` (1024px, headless Edge
+`--screenshot`), and regenerated the full set via `cargo tauri icon ../icon-source.png`
+(icon.ico/.icns/.png, 32-512 PNGs, Square*Logo, iOS, Android). Only visible after this rebuild.
+
+### B. Status-bar hierarchy (parity with LPD UI/UX audit #7)
+The live message (`#sb-msg`) now reads as the stateful item (`--text-2`, 600 weight); the passive
+right-side info (`.sb-r`) recedes to `--text-faint`. CSS only; no logic change.
+
+---
+
 ## v0.0.13 — layer-order stack + soft seams + thread crosses the slit + end-hole parity (2026-06-10)
 
 ### A. Shared-seam end holes — parity with LPD v0.8.9 (one hole per corner)
