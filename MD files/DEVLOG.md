@@ -5,6 +5,33 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.15 — consume edge reference guides (assembly-schema v5) (2026-06-11)
+
+Consumes the Pattern Designer's new **`type:'guide'`** seam (LPD v0.8.11, schema v5) — a directional,
+**non-joining alignment** annotation. `members[0]` is the target/reference edge; the other members are
+sources that should line up against it (the T-pocket case). A guide now actually **positions** the
+source pieces in 3D, with no stitching, no fold, no length/gap flag.
+
+- **`buildAssembly`** — `type:'guide'` flows through; **length-mismatch is not flagged** for guides
+  (`!partial && seam.type!=='guide'`); guides stay in the graph so the Flat/Stacked/Assembled toggle
+  appears; `stitch` is null so no shared holes (no change needed — gates already key on `type`).
+- **`computePieceTransforms`** — guides are excluded from the hard/soft stack BFS, then a dedicated
+  **guide pass** places each source onto the target via new **`placeGuideMember`** (the
+  `placeMemberOnParent` solve, but picking the edge-match that puts the source on the **OPPOSITE** side
+  → a **butt joint**, source extends outward, edges flush). The source is coplanar with the target
+  (`dy = targetXf.dy`) and **not** added to `S.pieceTree`, so it holds its aligned pose in stacked AND
+  assembled and **never folds** (alignment-only). A guide only moves a source no real seam already
+  placed (a hint, not an override).
+- **`computeSeamGaps`** skips guides — never gap-flagged.
+- **`buildSeamOverlays`** draws guide connectors **dashed** (`LineDashedMaterial`) in the seam colour.
+
+Confirmed with the user: **butt/extend-outward** placement + **alignment-only** (no fold). Smoke: new
+`guide` feature (type parsed, no length/gap, source collinear with + butting opposite the target, not in
+the hinge tree, coplanar, no stitching). Full **160/160**. Contract: `MD files/SEAM-CONSUMPTION.md` §11
+(mirrors `Leather Stuff/MD files/SEAM-MODEL.md` §14).
+
+---
+
 ## v0.0.14 — app icon "L3D" + status-bar hierarchy (2026-06-11)
 
 ### A. App icon now reads "L3D" (was the LPD icon)

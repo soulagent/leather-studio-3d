@@ -590,6 +590,48 @@ window.__SMOKE__ = function (spec) {
       clearScene();
     },
 
+    // --- v5 edge reference guides: a directional, alignment-only annotation. members[0]=target;
+    //     a source piece butts its edge against the target edge (opposite side), no stitch/fold/gap. ---
+    guide() {
+      const perpDist = (P, A, B) => { const dx=B.x-A.x, dy=B.y-A.y, L=Math.hypot(dx,dy)||1; return Math.abs((P.x-A.x)*dy - (P.y-A.y)*dx)/L; };
+      const kind = k => S.problems.filter(p => p.kind === k).length;
+      // base (100mm top edge) + smaller tab (40mm bottom edge) joined ONLY by a guide.
+      loadPattern({ shapes: [
+        { id: 1, type:'rect', x:0,   y:0,   w:100, h:80 },   // base — target = top edge (0)
+        { id: 2, type:'rect', x:0,   y:200, w:40,  h:30 },   // tab  — source = bottom edge (2)
+      ], assembly: { version: 5, seams: [
+        { id: 1, name: 'tab align', type: 'guide',
+          members: [ { shape: 1, edge: 0 }, { shape: 2, edge: 2 } ] },
+      ], folds: [] } }, 'guide');
+
+      const seam = S.assembly.seams[0];
+      assert('guide: parsed with type guide', seam.type === 'guide');
+      assert('guide: unequal edges raise NO length problem', kind('length') === 0, `len=${kind('length')}`);
+      assert('guide: carries no shared-stitch layout', seam.stitch == null);
+      assert('guide: owns no stitching (sharedSeamForEdge3D null)', sharedSeamForEdge3D(2, 2) === null);
+      assert('guide: in the graph (toggle shows)', S.assembly.graph.arcs.length >= 1, `arcs=${S.assembly.graph.arcs.length}`);
+
+      const tgt = seam.resolved[0], src = seam.resolved[1];
+      const txf = S.pieceXf.get(tgt.shape), sxf = S.pieceXf.get(src.shape);
+      assert('guide: source piece is positioned', Math.abs(sxf.tx) > 1e-6 || Math.abs(sxf.ty) > 1e-6 || Math.abs(sxf.theta) > 1e-6, JSON.stringify(sxf));
+      assert('guide: target stays at identity (reference)', txf.theta === 0 && txf.tx === 0 && txf.ty === 0);
+      // source edge lands collinear with the target edge (aligned)
+      const tA = applyXf2D(txf, tgt.poly[0]), tB = applyXf2D(txf, tgt.poly[tgt.poly.length-1]);
+      const srcPts = resampleByArcLength(src.poly, 8).map(p => applyXf2D(sxf, p));
+      const maxPerp = Math.max(...srcPts.map(p => perpDist(p, tA, tB)));
+      assert('guide: source edge aligns onto the target edge line', maxPerp < 0.5, `maxPerp=${maxPerp.toFixed(3)}mm`);
+      // butt joint: source body sits on the OPPOSITE side of the edge from the target body
+      const tc = applyXf2D(txf, pieceCentroid(tgt.sh)), sc = applyXf2D(sxf, pieceCentroid(src.sh));
+      assert('guide: source butts opposite the target (extends outward)',
+        sideOfLine(tA, tB, tc) === -sideOfLine(tA, tB, sc), `tgtSide=${sideOfLine(tA,tB,tc)} srcSide=${sideOfLine(tA,tB,sc)}`);
+      // alignment-only: never folds (not in the hinge tree), never gap-flagged
+      assert('guide: source not in the hinge tree (alignment-only)', !S.pieceTree.has(src.shape));
+      assert('guide: coplanar with target (no stack lift)', sxf.dy === (txf.dy||0), `dy=${sxf.dy}`);
+      assert('guide: raises NO gap problem', kind('gap') === 0, `gap=${kind('gap')}`);
+
+      clearScene();
+    },
+
     // --- #24 theme toggle (pill, LPD-style) + #22 keyboard-accessible menubar ---
     a11y() {
       const tog = document.getElementById('theme-toggle');
@@ -621,7 +663,7 @@ window.__SMOKE__ = function (spec) {
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'camera', 'stitch3d', 'nostitch', 'assembly', 'partialseams', 'sharedstitch', 'stacking', 'graph', 'fold', 'a11y'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'camera', 'stitch3d', 'nostitch', 'assembly', 'partialseams', 'sharedstitch', 'stacking', 'graph', 'guide', 'fold', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {

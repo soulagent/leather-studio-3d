@@ -368,7 +368,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.14';
+  const APP_VERSION = 'v0.0.15';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -1146,7 +1146,7 @@
         problems.push({ seam:sObj.id, kind:'dangling', msg:`"${sObj.name}": ${dangling.length} edge${dangling.length>1?'s':''} no longer resolve (deleted piece/edge)` });
       if (resolved.length < 2)
         problems.push({ seam:sObj.id, kind:'incomplete', msg:`"${sObj.name}": needs 2+ joined edges (has ${resolved.length})` });
-      else if (!partial) {   // U6: a partial join is intentionally unequal — don't flag the mismatch
+      else if (!partial && seam.type!=='guide') {   // U6: a partial join is intentionally unequal; v5: a guide aligns short→long edges — neither flags the mismatch
         const lens = resolved.map(m => m.len), mn=Math.min(...lens), mx=Math.max(...lens);
         if (mx - mn > SEAM_LEN_TOL){ sObj.lengthMismatch = true;
           problems.push({ seam:sObj.id, kind:'length', msg:`"${sObj.name}": edges differ in length (${mn.toFixed(1)}–${mx.toFixed(1)} mm) — won't sew evenly` });
@@ -1222,6 +1222,27 @@
     }
     return xfA;                        // A nests (or tie / no centroid) → direction-matched solve
   }
+  // v5 guide variant of placeMemberOnParent: align the source edge to the target edge but pick the
+  // edge-match that puts the source body on the OPPOSITE side of the shared edge (a BUTT joint — the
+  // source extends outward from the target, edges flush; matches the T-pocket reference) rather than
+  // nesting it on top. Falls back to the direction-matched solve when there's no side info.
+  function placeGuideMember(pm, mov, refXf, anchor){
+    const xfA = align2D(pm.poly, mov.poly, refXf, anchor);
+    const revAnchor = anchor==='end' ? 'start' : anchor==='start' ? 'end' : null;
+    const xfB = align2D(pm.poly, mov.poly.slice().reverse(), refXf, revAnchor);
+    const A = applyXf2D(refXf, pm.poly[0]), B = applyXf2D(refXf, pm.poly[pm.poly.length-1]);
+    const pc = pieceCentroid(pm.sh), mc = pieceCentroid(mov.sh);
+    if (pc && mc){
+      const parentSide = sideOfLine(A, B, applyXf2D(refXf, pc));
+      if (parentSide!==0){
+        const aOpp = sideOfLine(A, B, applyXf2D(xfA, mc))===-parentSide;
+        const bOpp = sideOfLine(A, B, applyXf2D(xfB, mc))===-parentSide;
+        if (bOpp && !aOpp) return xfB;   // only B butts → use the reversed edge-match
+        if (aOpp && !bOpp) return xfA;   // only A butts
+      }
+    }
+    return xfA;
+  }
   // S2 — whole seam-graph positioning. BFS from a root (most-connected) piece over the
   // seam adjacency: each newly reached piece snaps its mated edge onto its already-placed
   // parent, stacked in Y by global LAYER order (touching, by thickness). Handles N-way
@@ -1236,8 +1257,9 @@
     const shapes = Array.isArray(S.lastData?.shapes) ? S.lastData.shapes : [];
     const rank = new Map(); shapes.forEach((s,i)=>{ if(s.id!=null) rank.set(s.id, i); });
     const thick = id => S.pieceGroups.get(id)?.thickness || S.thickness;
-    // Only seams that can position pieces (2+ distinct resolved members).
-    const seams = S.assembly.seams.filter(s => new Set(s.resolved.map(m=>m.shape)).size >= 2);
+    // Only seams that can position pieces (2+ distinct resolved members). Guides are handled in a
+    // separate alignment-only pass below (they never participate in the hard/soft stack BFS).
+    const seams = S.assembly.seams.filter(s => new Set(s.resolved.map(m=>m.shape)).size >= 2 && s.type!=='guide');
     const pieceSeams = new Map();   // piece id -> seams it belongs to
     for (const seam of seams) for (const m of seam.resolved){
       if (!pieceSeams.has(m.shape)) pieceSeams.set(m.shape, []);
@@ -1299,6 +1321,24 @@
       comp.sort((a,b)=>(rank.get(a)??0)-(rank.get(b)??0));
       let lift=0; for (const id of comp){ S.pieceXf.get(id).dy = lift; lift += thick(id); }
     }
+    // v5 guide pass — alignment-only. A guide positions each SOURCE piece so its edge butts against
+    // the TARGET (members[0]) edge, in the target's current pose. It's a positioning HINT, so it only
+    // moves a source that no real seam already placed (`pieceSeams` = pieces touched by real seams),
+    // and never adds it to S.pieceTree → the piece holds its aligned pose in stacked AND assembled
+    // mode (it never folds). Never gap-flagged (guides aren't in `seams`, so computeSeamGaps skips them).
+    for (const seam of S.assembly.seams){
+      if (seam.type!=='guide') continue;
+      const res = (seam.resolved||[]); if (res.length < 2) continue;
+      const t = res[0], tXf = S.pieceXf.get(t.shape) || { ...IDENT_XF };
+      if (!S.pieceXf.has(t.shape)) S.pieceXf.set(t.shape, tXf);
+      for (let k=1; k<res.length; k++){
+        const m = res[k];
+        if (m.shape===t.shape || pieceSeams.has(m.shape)) continue;   // real seam owns its placement
+        const xf = placeGuideMember(t, m, tXf, seam.fit==='partial' ? seam.anchor : null);
+        xf.dy = tXf.dy||0;                                            // coplanar butt joint (no stack lift)
+        S.pieceXf.set(m.shape, xf);
+      }
+    }
     computeSeamGaps(seams);
   }
   // Tier-2: after positioning, flag seams whose mated edges don't actually coincide in the
@@ -1309,7 +1349,7 @@
   function computeSeamGaps(seams){
     const lengthBad = new Set(S.problems.filter(p=>p.kind==='length').map(p=>p.seam));
     for (const seam of seams){
-      if (lengthBad.has(seam.id) || seam.fit==='partial') continue;
+      if (lengthBad.has(seam.id) || seam.fit==='partial' || seam.type==='guide') continue;   // guide = alignment hint, never gap-flagged
       // Soft seams (non-adjacent layers) are alignment hints — never required to meet.
       if (S.softSeams && S.softSeams.has(seam.id)) continue;
       const ref = seam.resolved[0], refXf = S.pieceXf.get(ref.shape) || IDENT_XF;
@@ -1412,7 +1452,13 @@
       }
       if (!verts.length) continue;
       const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(verts,3));
-      const m = new THREE.LineSegments(g, new THREE.LineBasicMaterial({ color:col }));
+      // A guide is an alignment hint, not a sewn join → draw its connector DASHED to read differently
+      // from the solid sewn-seam ladder (same per-seam colour).
+      const guide = seam.type==='guide';
+      const m = new THREE.LineSegments(g, guide
+        ? new THREE.LineDashedMaterial({ color:col, dashSize:2.5, gapSize:1.6 })
+        : new THREE.LineBasicMaterial({ color:col }));
+      if (guide) m.computeLineDistances();
       m.visible = S.showSeams; patternGroup.add(m); S.seamMeshes.push(m);
     }
     // Fold creases (dashed violet on the owning piece's top face, posed with its piece)

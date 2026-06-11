@@ -218,4 +218,39 @@ No app-version gate — absent `stitch` = independent per-edge stitching (v1/v2 
 
 ---
 
-_Consumes `Leather Stuff/MD files/SEAM-MODEL.md` schema v15 (assembly-schema v3), read-only. Keep both in sync._
+## 11. Edge reference guides (TODO 4, assembly-schema v5, 2026-06-11)
+
+A seam may carry **`type:"guide"`** — a directional, **non-joining** alignment annotation (the editor's
+T-pocket case: tabs whose edges line up against one long edge). `members[0]` is the **target/reference**
+edge; the other members are **sources** that align to it. A guide implies no stitching, no fold — it
+only *positions* pieces so the 3D preview reflects the intended layout. Consumption:
+
+- **`buildAssembly`** carries `type:'guide'` through (`type: seam.type||'stitch'`); its `stitch` is null
+  (gated on `type!=='fold' && seam.stitch.shared`), and the **Tier-1 length-mismatch check is skipped**
+  for guides (`!partial && seam.type!=='guide'`) — short→long is intended. Guides still join the graph
+  (≥2 resolved members) so the Flat/Stacked/Assembled toggle appears.
+- **`computePieceTransforms`** excludes guides from the hard/soft stack BFS, then runs a dedicated
+  **guide pass**: each source member is placed onto the target (`members[0]`) via
+  `placeGuideMember(target, src, targetXf, anchor)` — the same two-candidate `align2D` solve as
+  `placeMemberOnParent`, but picking the match that puts the source body on the **OPPOSITE** side of the
+  shared edge (a **butt joint** — the source extends outward, edges flush). The source is set
+  **coplanar** with the target (`dy = targetXf.dy`, no stack lift) and is **not** added to `S.pieceTree`,
+  so it holds its aligned pose in stacked **and** assembled mode and **never folds** (alignment-only). A
+  guide only moves a source that no real seam already placed (a positioning hint, never an override).
+- **`computeSeamGaps`** skips guides (`seam.type==='guide'`) — their edges are never required to meet, so
+  no Tier-2 gap is flagged.
+- **`seamStitchSegments3D`/`sharedSeamForEdge3D`** already gate on `type==='stitch'`, so guides add **no
+  stitch holes/threads** with no change.
+- **`buildSeamOverlays`** draws a guide's connector **dashed** (`LineDashedMaterial`) in the seam colour,
+  reading as an alignment hint vs the solid sewn-seam ladder.
+
+Smoke: the `guide` feature loads a base + smaller tab joined only by a guide and asserts the type parses,
+no length/gap problem, the source is positioned collinear with + butting opposite the target, it's not in
+the hinge tree (alignment-only) and coplanar, and the guide owns no stitching.
+
+No app-version gate — absent/other `type` behaves as before; only `type:'guide'` triggers the alignment
+pass.
+
+---
+
+_Consumes `Leather Stuff/MD files/SEAM-MODEL.md` schema v15 (assembly-schema v5), read-only. Keep both in sync._

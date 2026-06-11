@@ -1921,7 +1921,7 @@ dependencies = [
 
 [[package]]
 name = "leather-studio-3d"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "serde_json",
  "tauri",
