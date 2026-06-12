@@ -491,6 +491,21 @@ window.__SMOKE__ = function (spec) {
       assertNear('layerstack: back at the base', S.pieceXf.get(1).dy, 0, 1e-6);
       assertNear('layerstack: pocket lifted by back', S.pieceXf.get(2).dy, 2, 1e-6);
       assertNear('layerstack: front lifted by back+pocket', S.pieceXf.get(3).dy, 3.5, 1e-6);
+      // Stack-gap (splay): lvl tags how many layers sit below a piece, so the slider opens an even
+      // gap (lvl*gap) between every layer to reveal stitches hidden at the interfaces.
+      assert('splay: stack levels follow layer order',
+        S.pieceXf.get(1).lvl === 0 && S.pieceXf.get(2).lvl === 1 && S.pieceXf.get(3).lvl === 2,
+        `lvls=${S.pieceXf.get(1).lvl},${S.pieceXf.get(2).lvl},${S.pieceXf.get(3).lvl}`);
+      const gy = id => S.pieceGroups.get(id).group.matrix.elements[13];   // posed world-Y of a piece group
+      setAssemblyMode('stacked'); setSplay(10);
+      assertNear('splay: base layer stays put', gy(1), 0, 1e-4);
+      assertNear('splay: 2nd layer opens one gap (dy + 1*gap)', gy(2), 2 + 10, 1e-4);
+      assertNear('splay: 3rd layer opens two gaps (dy + 2*gap)', gy(3), 3.5 + 20, 1e-4);
+      setSplay(0);
+      assertNear('splay: zero gap restores the touching stack', gy(3), 3.5, 1e-4);
+      setAssemblyMode('assembled'); setAssembleT(0); setSplay(10);
+      assertNear('splay: ignored outside stacked mode (fold FK stays pure)', gy(3), 3.5, 1e-4);
+      setSplay(0); setAssemblyMode('stacked');
       // Front was positioned by the hard chain (A then C), so the soft seam B's edges do NOT
       // meet — and being soft, that must NOT raise a Tier-2 gap problem.
       assert('soft: hard chain placed front via the pocket', S.pieceTree.get(3) && S.pieceTree.get(3).parent === 2,

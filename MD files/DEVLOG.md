@@ -5,6 +5,38 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.17 — Stack-gap (splay) to preview stitches hidden between layers (2026-06-12)
+
+In **Stacked** mode pieces rest directly on each other (touching, by thickness), so the saddle stitches
+that run between two layers are sandwiched out of sight. New **Stack gap** slider (Assembly panel, 0–40 mm,
+Stacked mode only) spaces the layers apart so those inter-layer stitches become visible for inspection.
+
+- `computePieceTransforms` now tags each piece with **`lvl`** — how many layers sit below it in its
+  component (alongside the existing `dy` cumulative-thickness lift). The stack order is unchanged.
+- `applyPieceTransforms` lifts each piece by **`lvl * S.splay`** in world Y, but **only in Stacked mode**
+  (`premultiply` a Y-translation onto the posed matrix). Flat is untouched and the **assembled FK stays
+  pure** — folding never sees the gap. So the base layer holds still and every layer above opens an even gap.
+- The seam connector ladders already map through each piece's live matrix, so they **stretch across the
+  opened gaps** for free (just `refreshSeamOverlays` after re-posing). `setSplay()` re-poses live without a
+  recentre (no mid-drag jump), mirroring the assemble/fold sliders; the value persists in prefs.
+- Slider row `#asm-splay-row` shown by `renderAssemblyPanel` only when Stacked.
+
+Smoke: `stacking` feature gains 6 asserts (lvl follows layer order; base stays, 2nd/3rd layers open
+1×/2× the gap; zero restores the touching stack; ignored outside Stacked) → full **173/173**.
+
+A complementary **per-piece layer toggle** (hide a specific piece to look *under* it) is a separate,
+still-open idea — splay is the overview lever; toggle would be the surgical one.
+
+### Status-bar contrast refinement (LPD #7 parity, finishing touch)
+
+The status bar already mirrored LPD's hierarchy (bold/bright live message, faint info readout), but the
+**idle "Ready" was the brightest, boldest element** — inverting the principle that passive state recedes
+and only live feedback pops (`sb-msg` is a transient flash that resets to "Ready", not persistent state).
+Now the idle message steps back (`--text-muted`, weight 500) and an **active flash** brightens + bolds
+(`--success`, weight 600); the info readout stays faintest (`--text-faint`). CSS-only.
+
+---
+
 ## v0.0.16 — visible "Checking for updates…" gate at launch (2026-06-12)
 
 Family-parity with LPD v0.8.12. The desktop launch update check was silent

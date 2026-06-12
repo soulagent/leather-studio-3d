@@ -1,8 +1,8 @@
 {
   "_comment": "Build ledger for the packaged desktop exe. APP_VERSION (dev/working number) lives in index.html; each build mints a buildTag = two random words + -V<buildCount>. On the next build: increment buildCount, generate two fresh random words, set buildTag, then cargo tauri build. Mirrors the Leather Pattern Designer's workflow.",
-  "devVersion": "0.0.16",
-  "buildCount": 15,
-  "buildTag": "violet-merlin-V15",
+  "devVersion": "0.0.17",
+  "buildCount": 16,
+  "buildTag": "crimson-tern-V16",
   "history": [
     { "v": 1, "tag": "amber-otter-V1", "dev": "0.0.2", "date": "2026-06-07" },
     { "v": 2, "tag": "cobalt-marten-V2", "dev": "0.0.2", "date": "2026-06-07", "note": "auto-update + updater signing; first signed build" },
@@ -18,6 +18,7 @@
     { "v": 12, "tag": "ember-curlew-V12", "dev": "0.0.13", "date": "2026-06-10", "note": "carries v0.0.12 (update prompt on welcome screen, pivot dropdown real piece names) + v0.0.13: layer-order stack + soft non-adjacent seams (S.softSeams), thread crosses the slit (th=+iron, visually verified), shared-seam end-hole parity with LPD v0.8.9 (trim + dedupe + stitch.margin carried)" },
     { "v": 13, "tag": "amber-vireo-V13", "dev": "0.0.14", "date": "2026-06-11", "note": "app icon changed LPD->L3D wordmark (regenerated full icon set from icon-source.png); status-bar hierarchy parity with LPD #7 (live message brighter, passive info recedes)" },
     { "v": 14, "tag": "tawny-falcon-V14", "dev": "0.0.15", "date": "2026-06-11", "note": "consume edge reference guides (assembly-schema v5): type:'guide' positions sources onto the target edge via placeGuideMember (opposite-side butt joint), coplanar + alignment-only (not in pieceTree, never folds); skip length/gap flags; dashed guide connectors; paired with LPD v0.8.11" },
-    { "v": 15, "tag": "violet-merlin-V15", "dev": "0.0.16", "date": "2026-06-12", "note": "visible 'Checking for updates...' launch gate (#upd-splash)" }
+    { "v": 15, "tag": "violet-merlin-V15", "dev": "0.0.16", "date": "2026-06-12", "note": "visible 'Checking for updates...' launch gate (#upd-splash)" },
+    { "v": 16, "tag": "crimson-tern-V16", "dev": "0.0.17", "date": "2026-06-12", "note": "Stack gap (splay) to preview stitches hidden between layers + status-bar contrast polish" }
   ]
 }

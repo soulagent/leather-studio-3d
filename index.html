@@ -143,9 +143,11 @@
     padding:0 12px;background:var(--panel);border-top:1px solid var(--border);
     font-size:11px;color:var(--text-2);
   }
-  /* status-bar hierarchy (parity with LPD #7): the live message reads as the stateful item; passive info recedes */
-  #sb-msg{color:var(--text-2);font-weight:600}
-  #status .flash{color:var(--success)}
+  /* status-bar hierarchy (parity with LPD #7): passive state recedes, only live feedback pops. The idle
+     "Ready" message is transient state at rest, so it steps back (muted, medium); an active flash is the
+     stateful item, so it brightens + bolds; the info readout is passive telemetry → faintest. */
+  #sb-msg{color:var(--text-muted);font-weight:500}
+  #status .flash{color:var(--success);font-weight:600}
   #status .sb-r{margin-left:auto;color:var(--text-faint);font-variant-numeric:tabular-nums}
 
   /* ── Themed modal (confirmModal / alertModal) — never native confirm/alert ── */
@@ -331,6 +333,9 @@
           <div class="p-field" id="asm-angle-row" style="display:none">
             <span class="p-lbl">Fold angle</span><input type="range" id="asmAngle" min="0" max="180" step="5" value="90"><span class="p-val" id="asmAngleV">90&deg;</span>
           </div>
+          <div class="p-field" id="asm-splay-row" style="display:none">
+            <span class="p-lbl">Stack gap</span><input type="range" id="asmSplay" min="0" max="40" step="0.5" value="0"><span class="p-val" id="asmSplayV">0&nbsp;mm</span>
+          </div>
           <div class="p-note" id="asm-summary" style="margin-bottom:6px"></div>
           <div id="asm-problems"></div>
           <div class="p-note" style="opacity:.6;margin-top:6px"><b>Stacked</b> snaps seam-joined pieces together + stacks them by thickness/layer (no pre-overlapping needed). Folding into the assembled product lands in a later phase.</div>
@@ -387,7 +392,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.16';
+  const APP_VERSION = 'v0.0.17';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -417,6 +422,8 @@
     threadMeshes:[],           // per-piece thread meshes (for live colour change)
     assembleT:1,               // 0..1 Flat↔Assembled fold amount (the assemble slider)
     foldAngle:90,              // target dihedral (deg) applied to every seam hinge when assembled
+    splay:0,                   // mm extra gap inserted between each stacked layer (Stacked mode only) —
+                               // lets you space the stack open to preview stitches hidden between pieces
     pivot:'model',             // orbit pivot: 'model' (centroid) or a pieceGroups key (U3)
   };
 
@@ -440,7 +447,7 @@
   const PREFS_KEY = 'ls3d-prefs';
   (function restorePrefs(){
     let p; try { p = JSON.parse(lsGet(PREFS_KEY)) || {}; } catch { p = {}; }
-    for (const k of ['leather','stitch','roughness','thickness','keyLight','ambient','showGrid','showStitches','wireframe','showSeams','assemblyMode','assembleT','foldAngle'])
+    for (const k of ['leather','stitch','roughness','thickness','keyLight','ambient','showGrid','showStitches','wireframe','showSeams','assemblyMode','assembleT','foldAngle','splay'])
       if (p[k] != null) S[k] = p[k];
   })();
   function savePrefs(){
@@ -450,7 +457,7 @@
       roughness:S.roughness, thickness:S.thickness,
       keyLight:S.keyLight, ambient:S.ambient,
       showGrid:S.showGrid, showStitches:S.showStitches, wireframe:S.wireframe, showSeams:S.showSeams,
-      assemblyMode:S.assemblyMode, assembleT:S.assembleT, foldAngle:S.foldAngle,
+      assemblyMode:S.assemblyMode, assembleT:S.assembleT, foldAngle:S.foldAngle, splay:S.splay,
     }));
   }
 
@@ -1338,7 +1345,9 @@
       // the summed thickness of every lower-layer piece in its component, regardless of which
       // seam placed it — so the render stack follows the editor's layer panel.
       comp.sort((a,b)=>(rank.get(a)??0)-(rank.get(b)??0));
-      let lift=0; for (const id of comp){ S.pieceXf.get(id).dy = lift; lift += thick(id); }
+      // dy = cumulative thickness (pieces touch); lvl = how many layers sit below this one, so the
+      // splay control can open an even gap between every layer (lvl*splay) without re-stacking.
+      let lift=0, lvl=0; for (const id of comp){ const x=S.pieceXf.get(id); x.dy = lift; x.lvl = lvl; lift += thick(id); lvl++; }
     }
     // v5 guide pass — alignment-only. A guide positions each SOURCE piece so its edge butts against
     // the TARGET (members[0]) edge, in the target's current pose. It's a positioning HINT, so it only
@@ -1425,7 +1434,14 @@
     }
     const t = S.assemblyMode === 'assembled' ? S.assembleT : 0;
     const world = computeAssembledMatrices(t);
-    for (const [id, w] of S.pieceGroups){ w.group.matrix.copy(world.get(id) || poseMatrix(id)); w.group.matrixWorldNeedsUpdate = true; }
+    // Splay only in Stacked mode: lift each piece by lvl*splay in world Y so the layers separate and
+    // the stitches buried between them become visible. Kept out of the assembled FK (folding pure).
+    const splay = (S.assemblyMode === 'stacked') ? (S.splay || 0) : 0;
+    for (const [id, w] of S.pieceGroups){
+      const M = (world.get(id) || poseMatrix(id)).clone();
+      if (splay){ const lvl = S.pieceXf.get(id)?.lvl || 0; if (lvl) M.premultiply(new THREE.Matrix4().makeTranslation(0, lvl*splay, 0)); }
+      w.group.matrix.copy(M); w.group.matrixWorldNeedsUpdate = true;
+    }
   }
   // Switch Flat / Stacked / Assembled: re-pose pieces, rebuild overlays, recentre.
   function setAssemblyMode(mode){
@@ -1442,6 +1458,10 @@
   // model would jump around mid-drag; recentre only happens on a mode switch).
   function setAssembleT(t){ S.assembleT = Math.max(0, Math.min(1, t)); if(S.assemblyMode==='assembled'){ applyPieceTransforms(); refreshSeamOverlays(); } renderAssemblyPanel(); savePrefs(); }
   function setFoldAngle(deg){ S.foldAngle = Math.max(0, Math.min(180, deg)); if(S.assemblyMode==='assembled'){ applyPieceTransforms(); refreshSeamOverlays(); } renderAssemblyPanel(); savePrefs(); }
+  // Stack gap (mm) — re-pose + rebuild the seam ladders (they map through each piece's live matrix, so
+  // they stretch across the opened gaps). No recentre mid-drag (the model would jump), like the assemble slider.
+  const SPLAY_MAX = 40;
+  function setSplay(mm){ S.splay = Math.max(0, Math.min(SPLAY_MAX, mm)); if(S.assemblyMode==='stacked'){ applyPieceTransforms(); refreshSeamOverlays(); } renderAssemblyPanel(); savePrefs(); }
   function refreshSeamOverlays(){
     for (const m of S.seamMeshes){ patternGroup.remove(m); m.geometry.dispose(); m.material.dispose(); }
     S.seamMeshes = [];
@@ -1518,6 +1538,11 @@
       if(tS){ tS.value=Math.round(S.assembleT*100); } if(tV){ tV.textContent=Math.round(S.assembleT*100)+'%'; }
       const aS=document.getElementById('asmAngle'), aV=document.getElementById('asmAngleV');
       if(aS){ aS.value=S.foldAngle; } if(aV){ aV.textContent=S.foldAngle+'°'; }
+      // Stack gap only makes sense in Stacked mode (folding hides the layers).
+      const spRow=document.getElementById('asm-splay-row');
+      if(spRow) spRow.style.display = (canStack && S.assemblyMode==='stacked') ? '' : 'none';
+      const spS=document.getElementById('asmSplay'), spV=document.getElementById('asmSplayV');
+      if(spS){ spS.value=S.splay; } if(spV){ spV.innerHTML=(+S.splay).toFixed(S.splay%1?1:0)+'&nbsp;mm'; }
     }
     const list=document.getElementById('asm-problems');
     if(list){
@@ -1906,6 +1931,7 @@
   $('asm-assembled').onclick = ()=> setAssemblyMode('assembled');
   $('asmT').oninput = ()=>{ $('asmTV').textContent = $('asmT').value+'%'; setAssembleT(parseFloat($('asmT').value)/100); };
   $('asmAngle').oninput = ()=>{ $('asmAngleV').textContent = $('asmAngle').value+'°'; setFoldAngle(parseFloat($('asmAngle').value)); };
+  $('asmSplay').oninput = ()=>{ const v=parseFloat($('asmSplay').value); $('asmSplayV').innerHTML = v.toFixed(v%1?1:0)+'&nbsp;mm'; setSplay(v); };
   // Camera pivot + framing (U3)
   $('pivotSel').onchange = ()=>{ const v=$('pivotSel').value; S.pivot = (v==='model') ? 'model' : (pieceKeyFromStr(v) ?? 'model'); aimPivot(); };
   $('frameBtn').onclick = frameTarget;
