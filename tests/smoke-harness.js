@@ -633,6 +633,23 @@ window.__SMOKE__ = function (spec) {
     },
 
     // --- #24 theme toggle (pill, LPD-style) + #22 keyboard-accessible menubar ---
+    // Launch update-check gate (visible "Checking for updates…" splash). Live updater is desktop-only;
+    // here we verify the splash element + show/hide helpers + launchUpdateCheck no-op in a plain browser.
+    updatecheck() {
+      const sp = document.getElementById('upd-splash');
+      assert('update: splash element exists', !!sp);
+      assert('update: splash hidden by default', !sp.classList.contains('open'));
+      assert('update: spinner present', !!sp.querySelector('.upd-spinner'));
+      showUpdSplash();
+      assert('update: showUpdSplash opens it', sp.classList.contains('open'));
+      hideUpdSplash();
+      assert('update: hideUpdSplash closes it', !sp.classList.contains('open'));
+      let threw = false;
+      try { launchUpdateCheck(); } catch (e) { threw = true; }
+      assert('update: launchUpdateCheck no-op in browser (no throw)', !threw);
+      assert('update: launchUpdateCheck leaves splash closed in browser', !sp.classList.contains('open'));
+    },
+
     a11y() {
       const tog = document.getElementById('theme-toggle');
       assert('theme-toggle exists and is role=button', !!tog && tog.getAttribute('role') === 'button');
@@ -663,7 +680,7 @@ window.__SMOKE__ = function (spec) {
   };
 
   // Tier -> ordered feature list. quick = pure logic; full = everything.
-  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'camera', 'stitch3d', 'nostitch', 'assembly', 'partialseams', 'sharedstitch', 'stacking', 'graph', 'guide', 'fold', 'a11y'];
+  const ORDER = ['kernel', 'outline', 'stitch-rect', 'stitch-circle', 'stitch-path', 'stitch-edges', 'load', 'camera', 'stitch3d', 'nostitch', 'assembly', 'partialseams', 'sharedstitch', 'stacking', 'graph', 'guide', 'fold', 'updatecheck', 'a11y'];
   const TIERS = { quick: ['kernel', 'outline'], full: ORDER };
 
   function resolve(spec) {

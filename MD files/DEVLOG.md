@@ -5,6 +5,25 @@ One entry per session, newest first. Bump `APP_VERSION` in `index.html` and the 
 
 ---
 
+## v0.0.16 — visible "Checking for updates…" gate at launch (2026-06-12)
+
+Family-parity with LPD v0.8.12. The desktop launch update check was silent
+(`setTimeout(()=>checkForUpdates(false), 1500)`); now `launchUpdateCheck()` shows a centred
+**"Checking for updates…" card on a dimmed backdrop with an animated spinner** (`#upd-splash`) while the
+updater is queried, then auto-dismisses — only an actual update prompts.
+
+- New `#upd-splash` overlay (dimmed backdrop + `.upd-card` + `@keyframes upd-spin` ring spinner), themed
+  from the design tokens, `z-index` above the modal/home overlays; `prefers-reduced-motion` stops the spin.
+- Refactored the install flow into shared **`promptAndInstall(update)`** (confirm → `downloadAndInstall`
+  with % via `flash` → `relaunch`), reused by the manual Help ▸ Check for Updates path.
+- New **`launchUpdateCheck()`**: `showUpdSplash()` → `Promise.race([up.check(), 8s timeout])` (offline/
+  error never traps) → ~600ms min display (no flicker) → `hideUpdSplash()` → prompt only on an update.
+  No-op in a plain browser. Called from `desktopLaunch()` in place of the silent timer.
+
+Smoke: new `updatecheck` feature → full **167/167**; build smoke **36/36**. Identical design to LPD's gate.
+
+---
+
 ## v0.0.15 — consume edge reference guides (assembly-schema v5) (2026-06-11)
 
 Consumes the Pattern Designer's new **`type:'guide'`** seam (LPD v0.8.11, schema v5) — a directional,

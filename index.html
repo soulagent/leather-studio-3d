@@ -170,6 +170,17 @@
   .modal-btn.primary:hover{background:var(--accent-hover)}
   .modal-btn:focus-visible{outline:2px solid var(--accent-bright);outline-offset:2px}
 
+  /* ── Launch update-check gate: centred "Checking for updates..." card + spinner, on a dimmed
+     backdrop; shown on desktop launch while the updater is queried, then auto-dismissed. ── */
+  #upd-splash{position:fixed;inset:0;z-index:12000;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55)}
+  #upd-splash.open{display:flex}
+  .upd-card{background:var(--dialog);border:1px solid var(--border);border-radius:10px;padding:26px 34px;
+    box-shadow:0 18px 50px rgba(0,0,0,.55);display:flex;flex-direction:column;align-items:center;gap:15px}
+  .upd-spinner{width:34px;height:34px;border-radius:50%;border:3px solid var(--raised);border-top-color:#e74c3c;animation:upd-spin .8s linear infinite}
+  .upd-text{font-size:13px;color:var(--text);font-weight:600;letter-spacing:.01em}
+  @keyframes upd-spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){ .upd-spinner{animation:none} }
+
   /* ── Home / welcome screen (LPD-style, french-stitch framed) ── */
   #home{position:fixed;inset:0;z-index:5000;display:flex;align-items:center;justify-content:center;
     background:radial-gradient(circle at 50% 32%, #1b1b32 0%, #0d0d1f 72%)}
@@ -343,6 +354,14 @@
     </div>
   </div>
 
+  <!-- Launch update-check splash (desktop; auto-dismisses) -->
+  <div id="upd-splash">
+    <div class="upd-card">
+      <div class="upd-spinner"></div>
+      <div class="upd-text">Checking for updates&hellip;</div>
+    </div>
+  </div>
+
   <div id="home" class="home-hidden">
     <svg id="home-stitch" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
     <div class="home-card">
@@ -368,7 +387,7 @@
   "use strict";
 
   // ── App identity. The status line parses this; keep the quoted v-string. ──
-  const APP_VERSION = 'v0.0.15';
+  const APP_VERSION = 'v0.0.16';
   document.getElementById('verTag').textContent = APP_VERSION;
   document.title = `Leather Studio 3D ${APP_VERSION}`;
 
@@ -1773,6 +1792,29 @@
   // Desktop auto-update. Manual (Help ▸ Check for Updates) reports every outcome;
   // the silent background call on launch only speaks up when an update exists.
   // No-op in a plain browser (the menu item is hidden there too).
+  // Splash helpers for the launch update-check gate.
+  function showUpdSplash(){ const e=document.getElementById('upd-splash'); if(e) e.classList.add('open'); }
+  function hideUpdSplash(){ const e=document.getElementById('upd-splash'); if(e) e.classList.remove('open'); }
+
+  // Confirm -> download (with % progress) -> relaunch for an available update. Shared by the manual
+  // menu check and the launch gate so the install flow has one source of truth.
+  async function promptAndInstall(update){
+    const notes = update.body ? '\n\nNotes: '+String(update.body).replace(/\s+/g,' ').slice(0,200) : '';
+    const ok = await confirmModal('Version '+update.version+' is available — download and install now? '
+        +'The app will restart when it finishes.'+notes,
+        {title:'Update Available', ok:'Update Now', cancel:'Later'});
+    if(!ok) return;
+    let total=0, got=0;
+    await update.downloadAndInstall(e=>{
+      if(e.event==='Started'){ total=(e.data&&e.data.contentLength)||0; flash('Downloading update…'); }
+      else if(e.event==='Progress'){ got+=(e.data&&e.data.chunkLength)||0; flash(total?('Downloading '+Math.round(got/total*100)+'%'):'Downloading…'); }
+      else if(e.event==='Finished'){ flash('Installing…'); }
+    });
+    const proc = window.__TAURI__ && window.__TAURI__.process;
+    if(proc && proc.relaunch) await proc.relaunch();
+  }
+
+  // Manual (Help ▸ Check for Updates): flash "Checking…", report up-to-date, else hand off to install.
   async function checkForUpdates(manual){
     const up = window.__TAURI__ && window.__TAURI__.updater;
     if(!up || !up.check){
@@ -1786,22 +1828,27 @@
         if(manual) await alertModal("You're on the latest version ("+APP_VERSION+").", 'Up to Date');
         return;
       }
-      const notes = update.body ? '\n\nNotes: '+String(update.body).replace(/\s+/g,' ').slice(0,200) : '';
-      const ok = await confirmModal('Version '+update.version+' is available — download and install now? '
-          +'The app will restart when it finishes.'+notes,
-          {title:'Update Available', ok:'Update Now', cancel:'Later'});
-      if(!ok) return;
-      let total=0, got=0;
-      await update.downloadAndInstall(e=>{
-        if(e.event==='Started'){ total=(e.data&&e.data.contentLength)||0; flash('Downloading update…'); }
-        else if(e.event==='Progress'){ got+=(e.data&&e.data.chunkLength)||0; flash(total?('Downloading '+Math.round(got/total*100)+'%'):'Downloading…'); }
-        else if(e.event==='Finished'){ flash('Installing…'); }
-      });
-      const proc = window.__TAURI__ && window.__TAURI__.process;
-      if(proc && proc.relaunch) await proc.relaunch();
+      await promptAndInstall(update);
     }catch(err){
       if(manual) alertModal('Update check failed: '+((err&&err.message)||err), 'Update Error');
     }
+  }
+
+  // Launch gate: on desktop start, show a visible "Checking for updates…" splash while the updater is
+  // queried (8s timeout so a slow/offline network never traps the user), held a min ~600ms so a fast
+  // check doesn't flicker, then dismissed. Only an actual update prompts. No-op in a plain browser.
+  async function launchUpdateCheck(){
+    const up = window.__TAURI__ && window.__TAURI__.updater;
+    if(!up || !up.check) return;
+    showUpdSplash();
+    const t0 = Date.now();
+    let update = null;
+    try{ update = await Promise.race([ up.check(), new Promise(r=>setTimeout(()=>r(null), 8000)) ]); }
+    catch(err){ update = null; }
+    const wait = 600 - (Date.now()-t0);
+    if(wait>0) await new Promise(r=>setTimeout(r, wait));
+    hideUpdSplash();
+    if(update) await promptAndInstall(update);
   }
 
   function applyStitch(){
@@ -2043,7 +2090,7 @@
   (function desktopLaunch(){
     const T = window.__TAURI__;
     if (!T){ const mu=document.getElementById('mi-update'); if(mu) mu.style.display='none'; return; } // updates = desktop only
-    setTimeout(()=>checkForUpdates(false), 1500); // silent background check on launch
+    launchUpdateCheck(); // VISIBLE "Checking for updates…" gate at launch (spinner splash; auto-dismisses)
     const loadText = (content, path)=>{
       try { loadPattern(JSON.parse(content), (path||'pattern').split(/[\\/]/).pop().replace(/\.[^.]+$/,'')); }
       catch { flash('Could not open the launched file'); }
